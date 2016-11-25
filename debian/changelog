@@ -1,0 +1,127 @@
+cargo (0.15.0~dev-1) unstable; urgency=medium
+
+  * New upstream snapshot (git 1877f59d6b2cb057f7ef6c6b34b926fd96a683c1)
+    - Compatible with OpenSSL 1.1.0 (Closes: #828259)
+  * rules: use new link-arg options (Closes: #834980, #837433)
+    - Requires rustc >= 1.13
+
+ -- Luca Bruno <lucab@debian.org>  Fri, 25 Nov 2016 23:30:03 +0000
+
+cargo (0.11.0-2) unstable; urgency=high
+
+  * debian/rules: fix RUSTFLAGS quoting (Closes: #834980)
+
+ -- Luca Bruno <lucab@debian.org>  Sun, 21 Aug 2016 18:21:21 +0000
+
+cargo (0.11.0-1) unstable; urgency=medium
+
+  [ Daniele Tricoli ]
+  * New upstream release. (Closes: #826938)
+    - Update deps tarball.
+    - Refresh patches.
+    - Drop clean-win-crates.patch since time crate is not a dependency
+      anymore.
+    - Drop deps-url-fix-toml.patch since merged upstream.
+
+  [ Luca Bruno ]
+  * Install subcommand manpages too
+  * Move to a bootstrapped (stage1) build by default
+
+ -- Luca Bruno <lucab@debian.org>  Mon, 15 Aug 2016 13:59:04 +0000
+
+cargo (0.9.0-1) unstable; urgency=medium
+
+  * New upstream version
+    + Fix deprecation errors (Closes: #822178, #823652)
+    + Updated deps tarball
+    + Refreshed patches
+
+ -- Luca Bruno <lucab@debian.org>  Sat, 07 May 2016 17:56:28 +0200
+
+cargo (0.8.0-2) unstable; urgency=low
+
+  * Prefer libcurl4-gnutls-dev for building (Closes: #819831)
+
+ -- Luca Bruno <lucab@debian.org>  Tue, 05 Apr 2016 22:23:44 +0200
+
+cargo (0.8.0-1) unstable; urgency=medium
+
+  * New upstream version 0.8.0
+    + Updated deps tarball
+    + Refreshed patches
+  * cargo: removed unused lintian overrides
+
+ -- Luca Bruno <lucab@debian.org>  Sat, 05 Mar 2016 22:39:06 +0100
+
+cargo (0.7.0-2) unstable; urgency=medium
+
+  * Bump standards version
+  * cargo:
+    + add a new stage2 profile
+    + preserve original Cargo.lock for clean
+    + clean environment to allow multiple builds
+  * cargo-doc:
+    + update docbase paths after package split
+    + do not reference remote jquery
+    + do not build under nodoc profile
+  * control: update build-deps for build-profiles
+
+ -- Luca Bruno <lucab@debian.org>  Thu, 03 Mar 2016 22:18:32 +0100
+
+cargo (0.7.0-1) unstable; urgency=medium
+
+  * New upstream version 0.7.0
+    + Updated deps tarball and repack filter
+    + Refreshed patches
+  * Fixes to debian packaging
+    + Updated deps repack script
+    + index packing: use the same TAR format as cargo
+    + rules: ask cargo to build verbosely
+  * Update README.source to match current packaging
+
+ -- Luca Bruno <lucab@debian.org>  Sun, 14 Feb 2016 16:12:55 +0100
+
+cargo (0.6.0-2) unstable; urgency=medium
+
+  * Introduce a cargo-doc package
+  * Fails to build when wget is installed. Force curl
+    (Closes: #809298)
+  * Add the missing VCS- fields
+
+ -- Sylvestre Ledru <sylvestre@debian.org>  Tue, 26 Jan 2016 13:01:16 +0100
+
+cargo (0.6.0-1) unstable; urgency=medium
+
+  * New upstream version 0.6.0
+    + Updated deps tarball
+    + Not shipping a registry index anymore
+  * Refreshed bootstrap.py script
+    + Skip optional dependencies in stage0
+  * Added some crude pack/unpack helpers
+  * copyright: cleaned up unused entries
+  * rules: major update for new 0.6.0 bootstrap
+
+ -- Luca Bruno <lucab@debian.org>  Fri, 04 Dec 2015 00:42:55 +0100
+
+cargo (0.3.0-2) unstable; urgency=medium
+
+  * Fix install target, removing arch-specific path
+
+ -- Luca Bruno <lucab@debian.org>  Sat, 14 Nov 2015 19:46:57 +0100
+
+cargo (0.3.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * First upload to unstable.
+  * Update gbp.conf according to git repo structure.
+  * patches: downgrade missing_docs lints to simple warnings
+    to avoid build failures on newer rustc.
+
+ -- Luca Bruno <lucab@debian.org>  Sat, 14 Nov 2015 17:29:15 +0100
+
+cargo (0.3.0-0~exp1) experimental; urgency=low
+
+  * Team upload.
+  * Initial Debian release. (Closes: #786432)
+
+ -- Luca Bruno <lucab@debian.org>  Tue, 11 Aug 2015 20:15:54 +0200
