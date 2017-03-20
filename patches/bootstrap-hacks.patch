@@ -1,0 +1,69 @@
+Description: bootstrap hacks
+ Patch for any bootstrapping related hacks made to "upstream" source as part of my attempts to bootstrap rust for raspbian.
+   * comment out  fs::remove_dir_all(env::var("OUT_DIR").unwrap()); in deps/libgit2-sys-0.6.2/build.rs , it seems to destroy the whole "deps" tree when invoked from the bootstrap script.
+   * Remove optional flag from miniz-sys dependency in /cargo-0.15.0~dev.new/deps/flate2-0.2.14/Cargo.toml
+   * Move libc dependency in deps/net2-0.2.26/Cargo.toml from unix section to general section.
+   * Move openssl dependency in Cargo.toml from unix section to general section.
+Author: Peter Michael Green <plugwash@raspbian.org>
+
+Index: cargo-0.15.0~dev.new/deps/libgit2-sys-0.6.2/build.rs
+===================================================================
+--- cargo-0.15.0~dev.new.orig/deps/libgit2-sys-0.6.2/build.rs
++++ cargo-0.15.0~dev.new/deps/libgit2-sys-0.6.2/build.rs
+@@ -111,7 +111,7 @@ fn main() {
+         cfg.define("CURL", "OFF");
+     }
+ 
+-    let _ = fs::remove_dir_all(env::var("OUT_DIR").unwrap());
++    // let _ = fs::remove_dir_all(env::var("OUT_DIR").unwrap());
+     t!(fs::create_dir_all(env::var("OUT_DIR").unwrap()));
+ 
+     let dst = cfg.define("BUILD_SHARED_LIBS", "OFF")
+Index: cargo-0.15.0~dev.new/deps/flate2-0.2.14/Cargo.toml
+===================================================================
+--- cargo-0.15.0~dev.new.orig/deps/flate2-0.2.14/Cargo.toml
++++ cargo-0.15.0~dev.new/deps/flate2-0.2.14/Cargo.toml
+@@ -17,7 +17,7 @@ streams.
+ 
+ [dependencies]
+ libc = "0.2"
+-miniz-sys = { path = "miniz-sys", version = "0.1.7", optional = true }
++miniz-sys = { path = "miniz-sys", version = "0.1.7" }
+ libz-sys = { version = "1.0", optional = true }
+ 
+ [dev-dependencies]
+Index: cargo-0.15.0~dev.new/deps/net2-0.2.26/Cargo.toml
+===================================================================
+--- cargo-0.15.0~dev.new.orig/deps/net2-0.2.26/Cargo.toml
++++ cargo-0.15.0~dev.new/deps/net2-0.2.26/Cargo.toml
+@@ -16,9 +16,6 @@ ws2_32-sys = "0.2"
+ winapi = "0.2"
+ kernel32-sys = "0.2"
+ 
+-[target."cfg(unix)".dependencies]
+-libc = "0.2.14"
+-
+ # Compat with older Cargo versions temporarily
+ [target.x86_64-unknown-linux-gnu.dependencies]
+ libc = "0.2.14"
+@@ -31,6 +28,7 @@ libc = "0.2.14"
+ 
+ [dependencies]
+ cfg-if = "0.1"
++libc = "0.2.14"
+ 
+ [features]
+ nightly = []
+Index: cargo-0.15.0~dev.new/Cargo.toml
+===================================================================
+--- cargo-0.15.0~dev.new.orig/Cargo.toml
++++ cargo-0.15.0~dev.new/Cargo.toml
+@@ -45,8 +45,6 @@ term = "0.4.4"
+ toml = "0.2"
+ url = "1.1"
+ #winapi = "0.2"
+-
+-[target.'cfg(unix)'.dependencies]
+ openssl = "0.9"
+ 
+ #[dev-dependencies]

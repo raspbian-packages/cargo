@@ -1,0 +1,23 @@
+Current packaging of cargo is sub-optimal due to the fact that
+both the language (Rust) and its package manager (Cargo)
+are involved into self-dependency loops to bootstrap.
+
+Moreover, the current approach to modules and registry by cargo is
+biased towards a developer-friendly always-online use.
+
+This package currently resort to several workarounds to build cargo:
+ 1. we use a custom script (debian/bootstrap.py) to build a local
+    stage0, instead of downloading/embedding a snapshotted binary.
+ 2. we embed all dependencies crates, because cargo needs external
+    modules (which need cargo themself to build).
+ 4. we generate a .cargo/config at build-time, to override paths and
+    registry.
+ 5. we create a temporary git repository at build-time for the
+    registry, as this is needed by cargo.
+
+As such, the original source is composed by two tarballs:
+ * cargo source
+ * dependencies crates (under deps/), stripped of unused embedded
+   C libraries
+
+ -- Luca Bruno <lucab@debian.org>  Sat, 13 Feb 2016 17:50:59 +0100
