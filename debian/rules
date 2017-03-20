@@ -1,0 +1,116 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildflags.mk
+RUSTFLAGS += $(foreach flag,$(LDFLAGS),-C link-arg=$(flag))
+export CFLAGS CXXFLAGS CPPFLAGS LDFLAGS RUSTFLAGS
+
+rust_cpu = $(subst i586,i686,$(1))
+DEB_HOST_RUST_TYPE := $(call rust_cpu,$(DEB_HOST_GNU_CPU))-unknown-$(DEB_HOST_GNU_SYSTEM)
+DEB_TARGET_RUST_TYPE := $(call rust_cpu,$(DEB_TARGET_GNU_CPU))-unknown-$(DEB_TARGET_GNU_SYSTEM)
+
+# Cargo looks for config in and writes cache to $CARGO_HOME/
+export CARGO_HOME = $(CURDIR)/.cargohome
+# Ask cargo to be verbose when building
+export VERBOSE = 1
+
+DEB_DESTDIR := $(CURDIR)/debian/tmp
+VENDORDIR := $(CURDIR)/vendor
+INDEXDIR := $(CURDIR)/vendor/index
+DEPSDIR := $(CURDIR)/deps
+
+%:
+	dh $@ --with bash-completion
+
+override_dh_auto_configure:
+	cp -a $(CURDIR)/Cargo.lock $(CURDIR)/.Cargo.lock.orig
+
+override_dh_auto_build:
+ifneq ($(filter stage0,$(DEB_BUILD_PROFILES)),)
+	#workaround failure to find crates-io in bootstrap script
+	cp -a src/crates-io deps/crates-io-0.4.0
+	mkdir deps/crates-io-0.4.0/src
+	mv deps/crates-io-0.4.0/*.rs deps/crates-io-0.4.0/src
+	# Apply bootstrapping hacks to upstream source
+	patch -p1 < debian/patches/bootstrap-hacks.patch
+	# Prepare a fake registry by packing all deps
+	./debian/cargo-vendor-pack.py
+	# Bootstrap cargo stage0
+	./debian/bootstrap.py \
+		--no-clean \
+		--no-clone \
+		--no-git \
+		--no-download \
+		--crate-index $(INDEXDIR)/ \
+		--cargo-root $(CURDIR)/ \
+		--target-dir $(DEPSDIR)/ \
+		--host=$(DEB_HOST_RUST_TYPE) \
+		--target=$(DEB_TARGET_RUST_TYPE)
+	# Remove bootstrapping hacks again
+	patch -p1 -R < debian/patches/bootstrap-hacks.patch
+	#cleanup our crates-io hack
+	rm -rf deps/crates-io-0.4.0
+	rm -rf $(VENDORDIR)
+	# Prepare a fake registry by packing all deps
+	./debian/cargo-vendor-pack.py
+	# Workaround for https://github.com/rust-lang/cargo/issues/1423
+	mv $(DEPSDIR) $(CURDIR)/.deps
+	ln -s `find $(CURDIR)/.deps -name 'cargo-*' -type f -executable` $(CURDIR)/cargo-stage0
+else
+	ln -s `which cargo` $(CURDIR)/cargo-stage0
+	# Prepare a fake registry by packing all deps
+	./debian/cargo-vendor-pack.py
+	# Workaround for https://github.com/rust-lang/cargo/issues/1423
+	mv $(DEPSDIR) $(CURDIR)/.deps
+endif
+	# Configure to build cargo using the just-built stage0
+	./configure \
+		--prefix=/usr \
+		--disable-debug \
+		--enable-optimize \
+		--local-rust-root=/usr \
+		--cargo=$(CURDIR)/cargo-stage0
+	# Build final cargo binary and docs
+	$(MAKE)
+ifeq (,$(findstring nodoc,$(DEB_BUILD_PROFILES)))
+	$(MAKE) doc
+	cd target/doc/ && rm -f jquery.js && ln -s /usr/share/javascript/jquery/jquery.js
+endif
+
+	# Restore from workarounds
+	mv $(CURDIR)/.deps $(DEPSDIR)
+
+override_dh_auto_clean:
+	-mv $(CURDIR)/.Cargo.lock.orig $(CURDIR)/Cargo.lock
+	-mv $(CURDIR)/.deps $(DEPSDIR)
+	dh_auto_clean
+	-$(RM) -r $(CURDIR)/deps/*.rlib \
+			$(CURDIR)/deps/build_script* \
+			$(CURDIR)/deps/cargo* \
+			$(CURDIR)/deps/*.o \
+			$(CURDIR)/target/ \
+			$(CURDIR)/.cargo/ \
+			$(CURDIR)/config.mk \
+			$(CURDIR)/config.stamp \
+			$(CURDIR)/Makefile \
+			$(CURDIR)/cargo-stage0 \
+			$(CARGO_HOME) \
+			$(VENDORDIR)
+	#cleanup our crates-io hack
+	rm -rf deps/crates-io-0.4.0
+	#cleanup leftover files/dirs
+	rm -f config.tmp deps/aho_corasick_dot-0_5_3 deps/docopt_wordlist-0_6_86
+	rm -rf deps/lib deps/build deps/include
+	find . -name '*.a' -delete
+	find . -name '*.c.o' -delete
+	find . -name '*.bin' -delete
+	find . -name '*.d' -delete
+
+
+override_dh_auto_install:
+	# We pick stuff directly from target/
+
+override_dh_auto_test:
+	# we don't run tests at the moment due to too many deps
+
