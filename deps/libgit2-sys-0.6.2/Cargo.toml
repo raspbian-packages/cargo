@@ -18,14 +18,12 @@ curl-sys = { version = "0.3", optional = true }
 libc = "0.2"
 libssh2-sys = { version = "0.2", optional = true }
 libz-sys = ">= 0"
+openssl-sys = { version = "0.9", optional = true }
 
 [build-dependencies]
 pkg-config = "0.3"
 cmake = "0.1.2"
 gcc = "0.3"
-
-[target."cfg(all(unix, not(target_os = \"macos\")))".dependencies]
-openssl-sys = { version = "0.9", optional = true }
 
 [features]
 ssh = ["libssh2-sys"]

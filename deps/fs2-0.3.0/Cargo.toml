@@ -8,7 +8,7 @@ documentation = "https://docs.rs/fs2"
 description = "Cross-platform file locks and file duplication."
 keywords = ["file", "file-system", "lock", "duplicate", "flock"]
 
-[target.'cfg(unix)'.dependencies]
+[dependencies]
 libc = "0.2.2"
 
 [target.'cfg(windows)'.dependencies]
