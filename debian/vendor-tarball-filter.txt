@@ -1,0 +1,10 @@
+# This is a list of files and dirs that should be filtered from
+# deps tarball for copyright/duplication reasons
+curl-sys-*/curl/
+libgit2-sys-*/libgit2*/
+libssh2-sys-*/libssh2*/
+libz-sys-*/src/zlib-*/
+strsim-*/docs/
+
+# To clean deps before making a new tarball, run
+# grep -v '^#' debian/deps-tarball-filter.txt | xargs -I% sh -c 'rm -rf %'
