@@ -14,7 +14,7 @@ use cargotest::support::{project, execs};
 use hamcrest::assert_that;
 
 // Test that HTTP auth is offered from `credential.helper`
-#[test]
+//#[test]
 fn http_auth_offered() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();
@@ -127,7 +127,7 @@ To learn more, run the command again with --verbose.
 }
 
 // Boy, sure would be nice to have a TLS implementation in rust!
-#[test]
+//#[test]
 fn https_something_happens() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();
