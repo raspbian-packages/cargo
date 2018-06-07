@@ -1,0 +1,17 @@
+Description: Disable incremental builds on sparc64
+ Incremental builds are currently unreliable on sparc64,
+ disable them by default for the time being.
+Last-Update: 2018-04-09
+
+--- a/src/cargo/core/manifest.rs
++++ b/src/cargo/core/manifest.rs
+@@ -711,6 +711,9 @@
+             debuginfo: Some(2),
+             debug_assertions: true,
+             overflow_checks: true,
++	    #[cfg(target_arch = "sparc64")]
++            incremental: false,
++	    #[cfg(not(target_arch = "sparc64"))]
+             incremental: true,
+             ..Profile::default()
+         }
