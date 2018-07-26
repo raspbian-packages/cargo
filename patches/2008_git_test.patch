@@ -1,0 +1,13 @@
+diff --git a/tests/git.rs b/tests/git.rs
+index ce2836a78..495757cfb 100644
+--- a/tests/git.rs
++++ b/tests/git.rs
+@@ -870,7 +870,7 @@ Caused by:
+   failed to update submodule `src`
+ 
+ Caused by:
+-  object not found - no match for id [..]
++  Object not found - no match for id [..]
+ ", path2url(git_project.root()));
+ 
+     assert_that(p.cargo("build"),
