@@ -27,8 +27,8 @@ fn no_deps() {
     assert_that(p.cargo("fetch"), execs().with_status(0).with_stdout(""));
 }
 
-#[test]
-fn fetch_all_platform_dependencies_when_no_target_is_given() {
+#[allow(dead_code)]
+fn _fetch_all_platform_dependencies_when_no_target_is_given() {
     Package::new("d1", "1.2.3")
         .file(
             "Cargo.toml",
@@ -87,8 +87,8 @@ fn fetch_all_platform_dependencies_when_no_target_is_given() {
     );
 }
 
-#[test]
-fn fetch_platform_specific_dependencies() {
+#[allow(dead_code)]
+fn _fetch_platform_specific_dependencies() {
     Package::new("d1", "1.2.3")
         .file(
             "Cargo.toml",
