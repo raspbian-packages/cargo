@@ -21,19 +21,20 @@ fn main() {
     // The system copy of libssh2 is not used by default because it
     // can lead to having two copies of libssl loaded at once.
     // See https://github.com/alexcrichton/ssh2-rs/pull/88
-    if env::var("LIBSSH2_SYS_USE_PKG_CONFIG").is_ok() {
-        if let Ok(lib) = pkg_config::find_library("libssh2") {
-            for path in &lib.include_paths {
-                println!("cargo:include={}", path.display());
-            }
-            return
+    // if env::var("LIBSSH2_SYS_USE_PKG_CONFIG").is_ok() {
+    if let Ok(lib) = pkg_config::find_library("libssh2") {
+        for path in &lib.include_paths {
+            println!("cargo:include={}", path.display());
         }
+        return;
     }
+    // }
 
-    if !Path::new("libssh2/.git").exists() {
-        let _ = Command::new("git").args(&["submodule", "update", "--init"])
-                                   .status();
-    }
+    // if !Path::new("libssh2/.git").exists() {
+    //     let _ = Command::new("git")
+    //         .args(&["submodule", "update", "--init"])
+    //         .status();
+    // }
 
     let mut cfg = cmake::Config::new("libssh2");
 
