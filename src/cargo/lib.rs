@@ -169,13 +169,13 @@ fn handle_cause(cargo_err: &Error, shell: &mut Shell) -> bool {
     if verbose == Verbose {
         // The first error has already been printed to the shell
         // Print all remaining errors
-        for err in cargo_err.causes().skip(1) {
+        for err in cargo_err.iter_chain().skip(1) {
             print(err.to_string(), shell);
         }
     } else {
         // The first error has already been printed to the shell
         // Print remaining errors until one marked as Internal appears
-        for err in cargo_err.causes().skip(1) {
+        for err in cargo_err.iter_chain().skip(1) {
             if err.downcast_ref::<Internal>().is_some() {
                 return false;
             }
