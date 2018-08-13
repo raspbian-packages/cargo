@@ -45,6 +45,7 @@ fn cargo_fail_with_no_stderr() {
 
 /// Check that the `CARGO_INCREMENTAL` environment variable results in
 /// `rustc` getting `-Zincremental` passed to it.
+#[cfg(not(target_arch = "sparc64"))]
 #[test]
 fn cargo_compile_incremental() {
     let p = project("foo")
@@ -71,6 +72,7 @@ fn cargo_compile_incremental() {
     );
 }
 
+#[cfg(not(target_arch = "sparc64"))]
 #[test]
 fn incremental_profile() {
     let p = project("foo")
@@ -127,6 +129,7 @@ fn incremental_profile() {
     );
 }
 
+#[cfg(not(target_arch = "sparc64"))]
 #[test]
 fn incremental_config() {
     let p = project("foo")
