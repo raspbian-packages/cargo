@@ -1,0 +1,11 @@
+--- a/tests/small-fd-limits.rs
++++ b/tests/small-fd-limits.rs
+@@ -83,7 +83,7 @@
+              packfiles after:  {}", before, after);
+ }
+ 
+-#[test]
++//#[test]
+ fn use_git_gc() {
+     if Command::new("git").arg("--version").output().is_err() {
+         return
