@@ -1,0 +1,59 @@
+# This is a list of files and dirs that are omitted from our custom
+# "suspicious files" scanner
+
+# test data
+flate2/tests/
+tar/tests/archives/
+term/tests/data/
+toml/tests/
+num/ci/
+openssl/test/
+schannel/test/*
+
+# misc support data
+failure/CODE_OF_CONDUCT.md
+failure_derive/CODE_OF_CONDUCT.md
+hamcrest/LICENSE-*
+*/.travis.yml
+# "build status" link-images etc take up a lot of line-length
+*/README.md
+
+# individual files, manually audited:
+backtrace-sys/src/libbacktrace/config/libtool.m4
+backtrace-sys/src/libbacktrace/configure
+clap/CHANGELOG.md
+clap/CONTRIBUTORS.md
+clap/.github/CONTRIBUTING.md
+cloudabi/cloudabi.rs
+conv/src/errors.rs
+conv/src/impls.rs
+conv/src/lib.rs
+conv/src/macros.rs
+docopt/src/test/testcases.rs
+dtoa/performance.png
+failure/book/src/bail-and-ensure.md
+git2/src/cred.rs
+idna/src/uts46_mapping_table.rs
+idna/tests/IdnaTest.txt
+itoa/performance.png
+lazy_static/src/lib.rs
+miniz-sys/miniz.c
+num/doc/favicon.ico
+num/doc/rust-logo-128x128-blk-v2.png
+num/.travis/deploy.enc
+regex/src/testdata/basic.dat
+regex/tests/crates_regex.rs
+regex/tests/fowler.rs
+rustc-demangle/src/lib.rs
+schannel/LICENSE.md
+stable_deref_trait/src/lib.rs
+synstructure/LICENSE
+tar/Cargo.toml
+termion/logo.svg
+term/scripts/id_rsa.enc
+unicode-normalization/src/tables.rs
+url/github.png
+vec_map/Cargo.toml
+winapi/README.md
+winapi/src/lib.rs
+winapi/src/winnt.rs
