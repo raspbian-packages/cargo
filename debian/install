@@ -1,0 +1,2 @@
+debian/scripts/*                        usr/share/cargo
+debian/bin/cargo                        usr/share/cargo/bin
