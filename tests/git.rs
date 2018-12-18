@@ -870,7 +870,7 @@ Caused by:
   failed to update submodule `src`
 
 Caused by:
-  object not found - no match for id [..]
+  Object not found - no match for id [..]
 ", path2url(git_project.root()));
 
     assert_that(p.cargo("build"),
