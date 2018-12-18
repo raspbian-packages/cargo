@@ -83,7 +83,7 @@ fn run_test(path_env: Option<&OsStr>) {
              packfiles after:  {}", before, after);
 }
 
-#[test]
+//#[test]
 fn use_git_gc() {
     if Command::new("git").arg("--version").output().is_err() {
         return
