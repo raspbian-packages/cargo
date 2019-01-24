@@ -118,7 +118,7 @@ pub fn resolve_with_config_raw(
 
     // The largest test in our suite takes less then 30 sec.
     // So lets fail the test if we have ben running for two long.
-    assert!(start.elapsed() < Duration::from_secs(60));
+    assert!(start.elapsed() < Duration::from_secs(240));
     resolve
 }
 

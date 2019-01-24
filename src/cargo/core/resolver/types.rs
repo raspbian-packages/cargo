@@ -57,7 +57,7 @@ impl ResolverProgress {
         // If any of them are removed then it takes more than I am willing to measure.
         // So lets fail the test fast if we have ben running for two long.
         if cfg!(debug_assertions) && (self.ticks % 1000 == 0) {
-            assert!(self.start.elapsed() - self.deps_time < Duration::from_secs(90));
+            assert!(self.start.elapsed() - self.deps_time < Duration::from_secs(360));
         }
         Ok(())
     }
