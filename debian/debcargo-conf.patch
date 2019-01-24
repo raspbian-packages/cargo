@@ -1,0 +1,262 @@
+diff --git a/src/commoncrypto-sys/debian/patches/no-clippy.patch b/src/commoncrypto-sys/debian/patches/no-clippy.patch
+index 3e4c885..93789f3 100644
+--- a/src/commoncrypto-sys/debian/patches/no-clippy.patch
++++ b/src/commoncrypto-sys/debian/patches/no-clippy.patch
+@@ -1,17 +1,16 @@
+---- a/Cargo.toml	2017-01-24 06:56:51.000000000 +0000
+-+++ b/Cargo.toml	2018-09-15 15:37:47.602333479 +0000
+-@@ -19,14 +19,8 @@
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -8,13 +8,8 @@
+  keywords = ["crypto", "hash", "digest", "osx", "commoncrypto"]
+  license = "MIT"
+- repository = "https://github.com/malept/rust-commoncrypto"
+--[dependencies.clippy]
+--version = "0.0"
+--optional = true
+  
+- [dependencies.libc]
+- version = "0.2"
+- [dev-dependencies.hex]
+- version = "0.2"
+--
+ -[features]
+ -lint = ["clippy"]
++-
++ [dependencies]
++ libc = "0.2"
++ 
++-clippy = { version = "0.0", optional = true }
++-
++ [dev-dependencies]
++ hex = "0.2"
+diff --git a/src/commoncrypto/debian/patches/no-clippy.patch b/src/commoncrypto/debian/patches/no-clippy.patch
+index 38d9c92..b21a7ca 100644
+--- a/src/commoncrypto/debian/patches/no-clippy.patch
++++ b/src/commoncrypto/debian/patches/no-clippy.patch
+@@ -1,17 +1,16 @@
+---- a/Cargo.toml	2017-01-24 06:56:51.000000000 +0000
+-+++ b/Cargo.toml	2018-09-15 17:37:01.354423224 +0000
+-@@ -19,14 +19,8 @@
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -8,13 +8,8 @@
+  keywords = ["crypto", "hash", "digest", "osx", "commoncrypto"]
+  license = "MIT"
+- repository = "https://github.com/malept/rust-commoncrypto"
+--[dependencies.clippy]
+--version = "0.0"
+--optional = true
+  
+- [dependencies.commoncrypto-sys]
+- version = "0.2.0"
+- [dev-dependencies.hex]
+- version = "0.2"
+--
+ -[features]
+ -lint = ["clippy"]
++-
++ [dependencies]
++ commoncrypto-sys = { version = "0.2.0", path = "../commoncrypto-sys" }
++ 
++-clippy = { version = "0.0", optional = true }
++-
++ [dev-dependencies]
++ hex = "0.2"
+diff --git a/src/curl/debian/patches/winapi3.patch b/src/curl/debian/patches/winapi3.patch
+index dce2312..a4ab79e 100644
+--- a/src/curl/debian/patches/winapi3.patch
++++ b/src/curl/debian/patches/winapi3.patch
+@@ -1,19 +1,24 @@
+---- a/Cargo.toml	1970-01-01 00:00:00.000000000 +0000
+-+++ b/Cargo.toml	2018-09-21 18:54:24.693880364 +0000
+-@@ -48,4 +48,2 @@ version = "0.1.2"
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -54,13 +54,12 @@
++ [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
+  version = "0.9.33"
+--[target."cfg(target_env=\"msvc\")".dependencies.kernel32-sys]
++ optional = true
++-[target."cfg(target_env = \"msvc\")".dependencies.kernel32-sys]
+ -version = "0.2.2"
+  
+-@@ -54,3 +52,4 @@ version = "0.1.13"
++ [target."cfg(target_env = \"msvc\")".dependencies.schannel]
++ version = "0.1.13"
+  [target."cfg(windows)".dependencies.winapi]
+ -version = "0.2.7"
+ +version = "0.3"
+ +features = ["winsock2", "wincrypt", "libloaderapi"]
+  [badges.appveyor]
+---- a/src/easy/windows.rs	2018-09-21 18:01:35.962553903 +0000
+-+++ b/src/easy/windows.rs	2018-09-21 18:01:35.962553903 +0000
+-@@ -4,21 +4,21 @@ use libc::c_void;
++ repository = "alexcrichton/curl-rust"
++ 
++--- a/src/easy/windows.rs
+++++ b/src/easy/windows.rs
++@@ -4,21 +4,21 @@
+  
+  #[cfg(target_env = "msvc")]
+  mod win {
+@@ -38,20 +43,20 @@
+              if n == ptr::null() {
+                  None
+              } else {
+---- a/src/lib.rs	2018-09-21 18:01:35.962553903 +0000
+-+++ b/src/lib.rs	2018-09-21 18:01:35.962553903 +0000
+-@@ -61,8 +61,6 @@ extern crate openssl_probe;
+- #[cfg(windows)]
++--- a/src/lib.rs
+++++ b/src/lib.rs
++@@ -62,8 +62,6 @@
+  extern crate winapi;
+  
+--#[cfg(target_env = "msvc")]
+--extern crate kernel32;
+  #[cfg(target_env = "msvc")]
++-extern crate kernel32;
++-#[cfg(target_env = "msvc")]
+  extern crate schannel;
+  
+---- a/src/multi.rs	2018-09-21 18:01:35.962553903 +0000
+-+++ b/src/multi.rs	2018-09-21 18:01:35.962553903 +0000
+-@@ -8,7 +8,7 @@ use libc::{c_int, c_char, c_void, c_long, c_short};
++ use std::ffi::CStr;
++--- a/src/multi.rs
+++++ b/src/multi.rs
++@@ -8,7 +8,7 @@
+  use curl_sys;
+  
+  #[cfg(windows)]
+diff --git a/src/ignore/debian/patches/relax-crossbeam-channel-dep.diff b/src/ignore/debian/patches/relax-crossbeam-channel-dep.diff
+deleted file mode 100644
+index 7989bb0..0000000
+--- a/src/ignore/debian/patches/relax-crossbeam-channel-dep.diff
++++ /dev/null
+@@ -1,41 +0,0 @@
+-Index: rust-ignore-0.4.4/Cargo.toml
+-===================================================================
+---- rust-ignore-0.4.4.orig/Cargo.toml
+-+++ rust-ignore-0.4.4/Cargo.toml
+-@@ -26,7 +26,7 @@ repository = "https://github.com/BurntSu
+- name = "ignore"
+- bench = false
+- [dependencies.crossbeam-channel]
+--version = "0.2.4"
+-+version = "0.3.2"
+- 
+- [dependencies.globset]
+- version = "0.4.2"
+-Index: rust-ignore-0.4.4/src/walk.rs
+-===================================================================
+---- rust-ignore-0.4.4.orig/src/walk.rs
+-+++ rust-ignore-0.4.4/src/walk.rs
+-@@ -1446,12 +1446,12 @@ impl Worker {
+-                 return None;
+-             }
+-             match self.rx.try_recv() {
+--                Some(Message::Work(work)) => {
+-+                Ok(Message::Work(work)) => {
+-                     self.waiting(false);
+-                     self.quitting(false);
+-                     return Some(work);
+-                 }
+--                Some(Message::Quit) => {
+-+                Ok(Message::Quit) => {
+-                     // We can't just quit because a Message::Quit could be
+-                     // spurious. For example, it's possible to observe that
+-                     // all workers are waiting even if there's more work to
+-@@ -1482,7 +1482,7 @@ impl Worker {
+-                         // Otherwise, spin.
+-                     }
+-                 }
+--                None => {
+-+                Err(_) => {
+-                     self.waiting(true);
+-                     self.quitting(false);
+-                     if self.num_waiting() == self.threads {
+diff --git a/src/ignore/debian/patches/series b/src/ignore/debian/patches/series
+deleted file mode 100644
+index db87168..0000000
+--- a/src/ignore/debian/patches/series
++++ /dev/null
+@@ -1 +0,0 @@
+-relax-crossbeam-channel-dep.diff
+diff --git a/src/jobserver/debian/patches/relax-dep-version.patch b/src/jobserver/debian/patches/relax-dep-version.patch
+index b3218cc..e69de29 100644
+--- a/src/jobserver/debian/patches/relax-dep-version.patch
++++ b/src/jobserver/debian/patches/relax-dep-version.patch
+@@ -1,8 +0,0 @@
+---- a/Cargo.toml	2018-08-03 01:58:48.002962262 -0700
+-+++ b/Cargo.toml	2018-08-03 01:58:54.275006248 -0700
+-@@ -61,4 +61,4 @@
+- [target."cfg(unix)".dependencies.libc]
+- version = "0.2"
+- [target."cfg(windows)".dependencies.rand]
+--version = "0.4"
+-+version = "< 0.6, >= 0.4"
+diff --git a/src/rand/debian/patches/disable-fuchsia-zircon-dep.diff b/src/rand/debian/patches/disable-fuchsia-zircon-dep.diff
+index d5c8ce5..449bed0 100644
+--- a/src/rand/debian/patches/disable-fuchsia-zircon-dep.diff
++++ b/src/rand/debian/patches/disable-fuchsia-zircon-dep.diff
+@@ -1,13 +1,17 @@
+-Index: rand/Cargo.toml
+-===================================================================
+---- rand.orig/Cargo.toml
+-+++ rand/Cargo.toml
+-@@ -48,7 +48,7 @@ default = ["std"]
+- i128_support = []
+- nightly = ["i128_support"]
+- serde1 = ["serde", "serde_derive", "rand_core/serde1"]
++--- a/Cargo.toml
+++++ b/Cargo.toml
++@@ -65,13 +65,10 @@
++ nightly = ["simd_support"]
++ serde1 = ["rand_core/serde1", "rand_isaac/serde1", "rand_xorshift/serde1"]
++ simd_support = ["packed_simd"]
+ -std = ["rand_core/std", "alloc", "libc", "winapi", "cloudabi", "fuchsia-zircon"]
+ +std = ["rand_core/std", "alloc", "libc", "winapi", "cloudabi"]
+  [target."cfg(target_os = \"cloudabi\")".dependencies.cloudabi]
+  version = "0.0.3"
+  optional = true
++-[target."cfg(target_os = \"fuchsia\")".dependencies.fuchsia-zircon]
++-version = "0.3.2"
++-optional = true
++ [target."cfg(unix)".dependencies.libc]
++ version = "0.2"
++ optional = true
+diff --git a/src/unicode-bidi/debian/patches/no-flamegraphs.patch b/src/unicode-bidi/debian/patches/no-flamegraphs.patch
+index 6234d5d..9acab86 100644
+--- a/src/unicode-bidi/debian/patches/no-flamegraphs.patch
++++ b/src/unicode-bidi/debian/patches/no-flamegraphs.patch
+@@ -1,5 +1,5 @@
+---- a/Cargo.toml	2017-07-06 23:45:07.000000000 +0000
+-+++ b/Cargo.toml	2018-09-15 18:09:13.913086470 +0000
++--- a/Cargo.toml
+++++ b/Cargo.toml
+ @@ -23,13 +23,6 @@
+  
+  [lib]
+@@ -12,12 +12,13 @@
+ -version = "0.1"
+ -optional = true
+  
+- [dependencies.matches]
+- version = "0.1"
+-@@ -44,6 +37,5 @@
++ [dependencies.serde]
++ version = ">=0.8, <2.0"
++@@ -43,7 +36,6 @@
++ 
+  [features]
+- bench_it = []
+- default = []
++ with_serde = ["serde"]
+ -flame_it = ["flame", "flamer"]
+  unstable = []
+- with_serde = ["serde"]
++ default = []
++ bench_it = []
