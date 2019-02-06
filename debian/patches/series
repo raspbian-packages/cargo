@@ -1,0 +1,3 @@
+1003_increase_timeout_for_slow_arches_like_mips.patch
+2002_disable-net-tests.patch
+2005_disable_fetch_cross_tests.patch
