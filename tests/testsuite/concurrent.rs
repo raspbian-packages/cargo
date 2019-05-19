@@ -511,7 +511,7 @@ fn no_deadlock_with_git_dependencies() {
     }
 
     for _ in 0..n_concurrent_builds {
-        let result = rx.recv_timeout(Duration::from_secs(30)).expect("Deadlock!");
+        let result = rx.recv_timeout(Duration::from_secs(120)).expect("Deadlock!");
         execs().run_output(&result);
     }
 }
