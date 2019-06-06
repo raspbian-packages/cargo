@@ -1,0 +1,29 @@
+Description:  Add workaround for apparently miscalculated logarithms.
+Author: Peter Michael Green <plugwash@raspbian.org>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: https://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: 2019-03-02
+
+--- cargo-0.33.0.orig/vendor/typenum/build/main.rs
++++ cargo-0.33.0/vendor/typenum/build/main.rs
+@@ -77,8 +77,8 @@ pub fn no_std() {}
+ fn main() {
+     let highest: u64 = 1024;
+ 
+-    let first2: u32 = (highest as f64).log(2.0) as u32 + 1;
+-    let first10: u32 = (highest as f64).log(10.0) as u32 + 1;
++    let first2: u32 = 11;//(highest as f64).log(2.0) as u32 + 1;
++    let first10: u32 = 4;//(highest as f64).log(10.0) as u32 + 1;
+     let uints = (0..(highest + 1))
+         .chain((first2..64).map(|i| 2u64.pow(i)))
+         .chain((first10..20).map(|i| 10u64.pow(i)));
