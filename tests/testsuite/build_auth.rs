@@ -10,7 +10,7 @@ use bufstream::BufStream;
 use git2;
 
 // Tests that HTTP auth is offered from `credential.helper`.
-#[test]
+#[allow(dead_code)]
 fn http_auth_offered() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();
@@ -149,7 +149,7 @@ Caused by:
 }
 
 // Boy, sure would be nice to have a TLS implementation in rust!
-#[test]
+#[allow(dead_code)]
 fn https_something_happens() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();

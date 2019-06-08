@@ -1,6 +1,6 @@
 use crate::support::project;
 
-#[test]
+#[allow(dead_code)]
 fn net_retry_loads_from_config() {
     let p = project()
         .file(
@@ -36,7 +36,7 @@ fn net_retry_loads_from_config() {
         .run();
 }
 
-#[test]
+#[allow(dead_code)]
 fn net_retry_git_outputs_warning() {
     let p = project()
         .file(
