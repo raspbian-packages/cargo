@@ -1152,7 +1152,7 @@ fn changing_rustflags_is_cached() {
 
     p.cargo("build").run();
     p.cargo("build")
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr(
             "\
 [COMPILING] foo v0.0.1 ([..])
@@ -1164,7 +1164,7 @@ fn changing_rustflags_is_cached() {
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
     p.cargo("build")
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
 }
@@ -1216,7 +1216,7 @@ fn simple_deps_cleaner_does_not_rebuild() {
         .run();
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr(
             "\
 [COMPILING] bar v0.0.1 ([..])
@@ -1234,14 +1234,14 @@ fn simple_deps_cleaner_does_not_rebuild() {
     // This does not make new files, but it does update the mtime.
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
     simple_deps_cleaner(p.target_debug_dir(), timestamp);
     // This should not recompile!
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
     // But this should be cleaned and so need a rebuild
@@ -1311,7 +1311,7 @@ fn fingerprint_cleaner_does_not_rebuild() {
         .run();
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr(
             "\
 [COMPILING] bar v0.0.1 ([..])
@@ -1329,14 +1329,14 @@ fn fingerprint_cleaner_does_not_rebuild() {
     // This does not make new files, but it does update the mtime.
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
     fingerprint_cleaner(p.target_debug_dir(), timestamp);
     // This should not recompile!
     p.cargo("build -Z mtime-on-use")
         .masquerade_as_nightly_cargo()
-        .env("RUSTFLAGS", "-C target-cpu=native")
+        .env("RUSTFLAGS", "-C linker=cc")
         .with_stderr("[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]")
         .run();
     // But this should be cleaned and so need a rebuild
