@@ -1,0 +1,30 @@
+From b90b433f58fb8d64ad6c67d8080cf3da1fce3543 Mon Sep 17 00:00:00 2001
+From: Steffen Butzer <steffen.butzer@outlook.com>
+Date: Thu, 21 Dec 2017 15:51:01 +0100
+Subject: [PATCH] migrate to winapi 0.3
+
+---
+ Cargo.toml         | 2 +-
+ src/sys/windows.rs | 3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 25ff582..ee1c0d3 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -17,3 +17,3 @@ categories = ["network-programming", "api-bindings"]
+ version = "0.2"
+-[target."cfg(windows)".dependencies.winapi]
+-version = "0.2"
++[target."cfg(windows)".dependencies]
++winapi = { version = "0.3", features = ["minwindef", "ws2def"] }
+diff --git a/src/sys/windows.rs b/src/sys/windows.rs
+index 18681a4..8cc6351 100644
+--- a/src/sys/windows.rs
++++ b/src/sys/windows.rs
+@@ -1,3 +1,4 @@
+-use winapi::{WSABUF, DWORD};
++use winapi::shared::minwindef::DWORD;
++use winapi::shared::ws2def::WSABUF;
+ use std::{mem, slice, u32};
+ 
