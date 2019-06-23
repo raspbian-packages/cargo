@@ -1,4 +1,4 @@
-extern crate clap;
+use clap;
 
 use clap::{AppSettings, Arg, ArgMatches};
 
@@ -6,7 +6,7 @@ use cargo::{self, CliResult, Config};
 
 use super::commands;
 use super::list_commands;
-use command_prelude::*;
+use crate::command_prelude::*;
 
 pub fn main(config: &mut Config) -> CliResult {
     let args = match cli().get_matches_safe() {
@@ -132,7 +132,7 @@ fn expand_aliases(
     Ok(args)
 }
 
-fn execute_subcommand(config: &mut Config, args: &ArgMatches) -> CliResult {
+fn execute_subcommand(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
     let (cmd, subcommand_args) = match args.subcommand() {
         (cmd, Some(args)) => (cmd, args),
         _ => {
@@ -194,7 +194,7 @@ Some common cargo commands are (see all commands with --list):
     doc         Build this package's and its dependencies' documentation
     new         Create a new cargo package
     init        Create a new cargo package in an existing directory
-    run         Build and execute src/main.rs
+    run         Run a binary or example of the local package
     test        Run the tests
     bench       Run the benchmarks
     update      Update dependencies listed in Cargo.lock

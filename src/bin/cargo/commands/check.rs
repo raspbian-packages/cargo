@@ -1,4 +1,4 @@
-use command_prelude::*;
+use crate::command_prelude::*;
 
 use cargo::ops;
 
@@ -34,7 +34,7 @@ pub fn cli() -> App {
         .arg_message_format()
         .after_help(
             "\
-If the --package argument is given, then SPEC is a package id specification
+If the `--package` argument is given, then SPEC is a package ID specification
 which indicates which package should be built. If it is not given, then the
 current package is built. For more information on SPEC and its format, see the
 `cargo help pkgid` command.
@@ -45,7 +45,7 @@ Note that `--exclude` has to be specified in conjunction with the `--all` flag.
 
 Compilation can be configured via the use of profiles which are configured in
 the manifest. The default profile for this command is `dev`, but passing
-the --release flag will use the `release` profile instead.
+the `--release` flag will use the `release` profile instead.
 
 The `--profile test` flag can be used to check unit tests with the
 `#[cfg(test)]` attribute.
@@ -53,13 +53,13 @@ The `--profile test` flag can be used to check unit tests with the
         )
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
+pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
     let ws = args.workspace(config)?;
     let test = match args.value_of("profile") {
         Some("test") => true,
         None => false,
         Some(profile) => {
-            let err = format_err!(
+            let err = failure::format_err!(
                 "unknown profile: `{}`, only `test` is \
                  currently supported",
                 profile
@@ -68,7 +68,8 @@ pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
         }
     };
     let mode = CompileMode::Check { test };
-    let compile_opts = args.compile_options(config, mode)?;
+    let compile_opts = args.compile_options(config, mode, Some(&ws))?;
+
     ops::compile(&ws, &compile_opts)?;
     Ok(())
 }

@@ -6,20 +6,18 @@ use std::mem;
 use std::path::Path;
 use std::str;
 
-use git2;
-use hex;
 use lazycell::LazyCell;
-use serde_json;
+use log::{debug, trace};
 
-use core::{PackageId, SourceId};
-use sources::git;
-use sources::registry::MaybeLock;
-use sources::registry::{
+use crate::core::{PackageId, SourceId};
+use crate::sources::git;
+use crate::sources::registry::MaybeLock;
+use crate::sources::registry::{
     RegistryConfig, RegistryData, CRATE_TEMPLATE, INDEX_LOCK, VERSION_TEMPLATE,
 };
-use util::errors::{CargoResult, CargoResultExt};
-use util::{Config, Sha256};
-use util::{FileLock, Filesystem};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{Config, Sha256};
+use crate::util::{FileLock, Filesystem};
 
 pub struct RemoteRegistry<'cfg> {
     index_path: Filesystem,
@@ -98,7 +96,7 @@ impl<'cfg> RemoteRegistry<'cfg> {
         Ok(self.head.get().unwrap())
     }
 
-    fn tree(&self) -> CargoResult<Ref<git2::Tree>> {
+    fn tree(&self) -> CargoResult<Ref<'_, git2::Tree<'_>>> {
         {
             let tree = self.tree.borrow();
             if tree.is_some() {
@@ -121,7 +119,7 @@ impl<'cfg> RemoteRegistry<'cfg> {
         // (`RemoteRegistry`) so we then just need to ensure that the tree is
         // destroyed first in the destructor, hence the destructor on
         // `RemoteRegistry` below.
-        let tree = unsafe { mem::transmute::<git2::Tree, git2::Tree<'static>>(tree) };
+        let tree = unsafe { mem::transmute::<git2::Tree<'_>, git2::Tree<'static>>(tree) };
         *self.tree.borrow_mut() = Some(tree);
         Ok(Ref::map(self.tree.borrow(), |s| s.as_ref().unwrap()))
     }
@@ -145,7 +143,7 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         &self,
         _root: &Path,
         path: &Path,
-        data: &mut FnMut(&[u8]) -> CargoResult<()>,
+        data: &mut dyn FnMut(&[u8]) -> CargoResult<()>,
     ) -> CargoResult<()> {
         // Note that the index calls this method and the filesystem is locked
         // in the index, so we don't need to worry about an `update_index`
@@ -156,7 +154,7 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         let object = entry.to_object(repo)?;
         let blob = match object.as_blob() {
             Some(blob) => blob,
-            None => bail!("path `{}` is not a blob in the git repo", path.display()),
+            None => failure::bail!("path `{}` is not a blob in the git repo", path.display()),
         };
         data(blob.content())
     }
@@ -230,7 +228,7 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         }
 
         let config = self.config()?.unwrap();
-        let mut url = config.dl.clone();
+        let mut url = config.dl;
         if !url.contains(CRATE_TEMPLATE) && !url.contains(VERSION_TEMPLATE) {
             write!(url, "/{}/{}/download", CRATE_TEMPLATE, VERSION_TEMPLATE).unwrap();
         }
@@ -254,7 +252,7 @@ impl<'cfg> RegistryData for RemoteRegistry<'cfg> {
         let mut state = Sha256::new();
         state.update(data);
         if hex::encode(state.finish()) != checksum {
-            bail!("failed to verify the checksum of `{}`", pkg)
+            failure::bail!("failed to verify the checksum of `{}`", pkg)
         }
 
         let filename = self.filename(pkg);

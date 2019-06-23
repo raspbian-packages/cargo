@@ -2,8 +2,7 @@
 
 libcurl bindings for Rust
 
-[![Build Status](https://travis-ci.org/alexcrichton/curl-rust.svg?branch=master)](https://travis-ci.org/alexcrichton/curl-rust)
-[![Build status](https://ci.appveyor.com/api/projects/status/lx98wtbxhhhajpr9?svg=true)](https://ci.appveyor.com/project/alexcrichton/curl-rust)
+[![Build Status](https://dev.azure.com/alexcrichton/curl-rust/_apis/build/status/alexcrichton.curl-rust?branchName=master)](https://dev.azure.com/alexcrichton/curl-rust/_build/latest?definitionId=6&branchName=master)
 
 [Documentation](https://docs.rs/curl)
 
@@ -136,13 +135,35 @@ with various Cargo features:
 - `http2`: Enable HTTP/2 support via libnghttp2. Disabled by default.
 - `static-curl`: Use a bundled libcurl version and statically link to it. Disabled by default.
 - `static-ssl`: Use a bundled OpenSSL version and statically link to it. Only applies on platforms that use OpenSSL. Disabled by default.
-- `spengo`: Enable SPENGO support. Disabled by default.
+- `spnego`: Enable SPNEGO support. Disabled by default.
 
 ## Version Support
 
 The bindings have been developed using curl version 7.24.0. They should
 work with any newer version of curl and possibly with older versions,
 but this has not been tested.
+
+## Troubleshooting
+
+### Curl built against the NSS SSL library
+
+If you encounter the following error message:
+
+```
+  [77] Problem with the SSL CA cert (path? access rights?)
+```
+
+That means most likely, that curl was linked against `libcurl-nss.so` due to
+installed libcurl NSS development files, and that the required library
+`libnsspem.so` is missing. See also the curl man page: "If curl is built
+against the NSS SSL library, the NSS PEM PKCS#11 module (libnsspem.so) needs to
+be available for this option to work properly."
+
+In order to avoid this failure you can either
+
+ * install the missing library (e.g. Debian: `nss-plugin-pem`), or
+ * remove the libcurl NSS development files (e.g. Debian: `libcurl4-nss-dev`) and
+   rebuild curl-rust.
 
 ## License
 

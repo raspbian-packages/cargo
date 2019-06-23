@@ -4,6 +4,7 @@ pub const CLONE_FILES: usize = 0x400;
 pub const CLONE_SIGHAND: usize = 0x800;
 pub const CLONE_VFORK: usize = 0x4000;
 pub const CLONE_THREAD: usize = 0x10000;
+pub const CLONE_STACK: usize = 0x1000_0000;
 
 pub const CLOCK_REALTIME: usize = 1;
 pub const CLOCK_MONOTONIC: usize = 4;
@@ -55,8 +56,9 @@ pub const O_SYMLINK: usize =    0x4000_0000;
 pub const O_NOFOLLOW: usize =   0x8000_0000;
 pub const O_ACCMODE: usize =    O_RDONLY | O_WRONLY | O_RDWR;
 
-pub const PHYSMAP_WRITE: usize = 1;
-pub const PHYSMAP_WRITE_COMBINE: usize = 2;
+pub const PHYSMAP_WRITE: usize = 0x0000_0001;
+pub const PHYSMAP_WRITE_COMBINE: usize = 0x0000_0002;
+pub const PHYSMAP_NO_CACHE: usize = 0x0000_0004;
 
 pub const PROT_NONE: usize = 0x0000_0000;
 pub const PROT_EXEC: usize = 0x0001_0000;

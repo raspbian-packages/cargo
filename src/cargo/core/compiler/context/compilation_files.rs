@@ -6,24 +6,53 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use lazycell::LazyCell;
+use log::info;
 
 use super::{BuildContext, Context, FileFlavor, Kind, Layout, Unit};
-use core::{TargetKind, Workspace};
-use util::{self, CargoResult};
+use crate::core::{TargetKind, Workspace};
+use crate::util::{self, CargoResult};
 
+/// The `Metadata` is a hash used to make unique file names for each unit in a build.
+/// For example:
+/// - A project may depend on crate `A` and crate `B`, so the package name must be in the file name.
+/// - Similarly a project may depend on two versions of `A`, so the version must be in the file name.
+/// In general this must include all things that need to be distinguished in different parts of
+/// the same build. This is absolutely required or we override things before
+/// we get chance to use them.
+///
+/// We use a hash because it is an easy way to guarantee
+/// that all the inputs can be converted to a valid path.
+///
+/// This also acts as the main layer of caching provided by Cargo.
+/// For example, we want to cache `cargo build` and `cargo doc` separately, so that running one
+/// does not invalidate the artifacts for the other. We do this by including `CompileMode` in the
+/// hash, thus the artifacts go in different folders and do not override each other.
+/// If we don't add something that we should have, for this reason, we get the
+/// correct output but rebuild more than is needed.
+///
+/// Some things that need to be tracked to ensure the correct output should definitely *not*
+/// go in the `Metadata`. For example, the modification time of a file, should be tracked to make a
+/// rebuild when the file changes. However, it would be wasteful to include in the `Metadata`. The
+/// old artifacts are never going to be needed again. We can save space by just overwriting them.
+/// If we add something that we should not have, for this reason, we get the correct output but take
+/// more space than needed. This makes not including something in `Metadata`
+/// a form of cache invalidation.
+///
+/// Note that the `Fingerprint` is in charge of tracking everything needed to determine if a
+/// rebuild is needed.
 #[derive(Clone, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Metadata(u64);
 
 impl fmt::Display for Metadata {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.0)
     }
 }
 
 pub struct CompilationFiles<'a, 'cfg: 'a> {
-    /// The target directory layout for the host (and target if it is the same as host)
+    /// The target directory layout for the host (and target if it is the same as host).
     pub(super) host: Layout,
-    /// The target directory layout for the target (if different from then host)
+    /// The target directory layout for the target (if different from then host).
     pub(super) target: Option<Layout>,
     /// Additional directory to include a copy of the outputs.
     export_dir: Option<PathBuf>,
@@ -41,12 +70,22 @@ pub struct OutputFile {
     /// Absolute path to the file that will be produced by the build process.
     pub path: PathBuf,
     /// If it should be linked into `target`, and what it should be called
-    /// (e.g. without metadata).
+    /// (e.g., without metadata).
     pub hardlink: Option<PathBuf>,
     /// If `--out-dir` is specified, the absolute path to the exported file.
     pub export_path: Option<PathBuf>,
     /// Type of the file (library / debug symbol / else).
     pub flavor: FileFlavor,
+}
+
+impl OutputFile {
+    /// Gets the hard link if present; otherwise, returns the path.
+    pub fn bin_dst(&self) -> &PathBuf {
+        match self.hardlink {
+            Some(ref link_dst) => link_dst,
+            None => &self.path,
+        }
+    }
 }
 
 impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
@@ -86,17 +125,17 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         }
     }
 
-    /// Get the metadata for a target in a specific profile
-    /// We build to the path: "{filename}-{target_metadata}"
+    /// Gets the metadata for a target in a specific profile.
+    /// We build to the path `"{filename}-{target_metadata}"`.
     /// We use a linking step to link/copy to a predictable filename
     /// like `target/debug/libfoo.{a,so,rlib}` and such.
     pub fn metadata(&self, unit: &Unit<'a>) -> Option<Metadata> {
         self.metas[unit].clone()
     }
 
-    /// Get the short hash based only on the PackageId
-    /// Used for the metadata when target_metadata returns None
-    pub fn target_short_hash(&self, unit: &Unit) -> String {
+    /// Gets the short hash based only on the `PackageId`.
+    /// Used for the metadata when `target_metadata` returns `None`.
+    pub fn target_short_hash(&self, unit: &Unit<'_>) -> String {
         let hashable = unit.pkg.package_id().stable_hash(self.ws.root());
         util::short_hash(&hashable)
     }
@@ -127,7 +166,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         }
     }
 
-    /// Return the root of the build output tree
+    /// Returns the root of the build output tree.
     pub fn target_root(&self) -> &Path {
         self.host.dest()
     }
@@ -138,7 +177,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
 
     /// Returns the directories where Rust crate dependencies are found for the
     /// specified unit.
-    pub fn deps_dir(&self, unit: &Unit) -> &Path {
+    pub fn deps_dir(&self, unit: &Unit<'_>) -> &Path {
         self.layout(unit.kind).deps()
     }
 
@@ -163,7 +202,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         self.layout(unit.kind).build().join(dir).join("out")
     }
 
-    /// Returns the file stem for a given target/profile combo (with metadata)
+    /// Returns the file stem for a given target/profile combo (with metadata).
     pub fn file_stem(&self, unit: &Unit<'a>) -> String {
         match self.metas[unit] {
             Some(ref metadata) => format!("{}-{}", unit.target.crate_name(), metadata),
@@ -181,8 +220,8 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
             .map(Arc::clone)
     }
 
-    /// Returns the bin stem for a given target (without metadata)
-    fn bin_stem(&self, unit: &Unit) -> String {
+    /// Returns the bin stem for a given target (without metadata).
+    fn bin_stem(&self, unit: &Unit<'_>) -> String {
         if unit.target.allows_underscores() {
             unit.target.name().to_string()
         } else {
@@ -194,10 +233,10 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
     /// our target to be copied to. Eg, file_stem may be out_dir/deps/foo-abcdef
     /// and link_stem would be out_dir/foo
     /// This function returns it in two parts so the caller can add prefix/suffix
-    /// to filename separately
+    /// to filename separately.
     ///
-    /// Returns an Option because in some cases we don't want to link
-    /// (eg a dependent lib)
+    /// Returns an `Option` because in some cases we don't want to link
+    /// (eg a dependent lib).
     fn link_stem(&self, unit: &Unit<'a>) -> Option<(PathBuf, String)> {
         let out_dir = self.out_dir(unit);
         let bin_stem = self.bin_stem(unit);
@@ -207,7 +246,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         // it was compiled into something like `example/` or `doc/` then
         // we don't want to link it up.
         if out_dir.ends_with("deps") {
-            // Don't lift up library dependencies
+            // Don't lift up library dependencies.
             if unit.target.is_bin() || self.roots.contains(unit) {
                 Some((
                     out_dir.parent().unwrap().to_owned(),
@@ -237,7 +276,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         let out_dir = self.out_dir(unit);
         let file_stem = self.file_stem(unit);
         let link_stem = self.link_stem(unit);
-        let info = if unit.target.for_host() {
+        let info = if unit.kind == Kind::Host {
             &bcx.host_info
         } else {
             &bcx.target_info
@@ -294,14 +333,14 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
                                 });
                             }
                         }
-                        // not supported, don't worry about it
+                        // Not supported; don't worry about it.
                         None => {
                             unsupported.push(crate_type.to_string());
                         }
                     }
                     Ok(())
                 };
-                //info!("{:?}", unit);
+                // info!("{:?}", unit);
                 match *unit.target.kind() {
                     TargetKind::Bin
                     | TargetKind::CustomBuild
@@ -330,7 +369,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
         }
         if ret.is_empty() {
             if !unsupported.is_empty() {
-                bail!(
+                failure::bail!(
                     "cannot produce {} for `{}` as the target `{}` \
                      does not support these crate types",
                     unsupported.join(", "),
@@ -338,7 +377,7 @@ impl<'a, 'cfg: 'a> CompilationFiles<'a, 'cfg> {
                     bcx.target_triple()
                 )
             }
-            bail!(
+            failure::bail!(
                 "cannot compile `{}` as the target `{}` does not \
                  support any of the output crate types",
                 unit.pkg,
@@ -371,18 +410,18 @@ fn compute_metadata<'a, 'cfg>(
     cx: &Context<'a, 'cfg>,
     metas: &mut HashMap<Unit<'a>, Option<Metadata>>,
 ) -> Option<Metadata> {
-    // No metadata for dylibs because of a couple issues
-    // - OSX encodes the dylib name in the executable
-    // - Windows rustc multiple files of which we can't easily link all of them
+    // No metadata for dylibs because of a couple issues:
+    // - macOS encodes the dylib name in the executable,
+    // - Windows rustc multiple files of which we can't easily link all of them.
     //
-    // No metadata for bin because of an issue
-    // - wasm32 rustc/emcc encodes the .wasm name in the .js (rust-lang/cargo#4535)
+    // No metadata for bin because of an issue:
+    // - wasm32 rustc/emcc encodes the `.wasm` name in the `.js` (rust-lang/cargo#4535).
     //
-    // Two exceptions
-    // 1) Upstream dependencies (we aren't exporting + need to resolve name conflict)
-    // 2) __CARGO_DEFAULT_LIB_METADATA env var
+    // Two exceptions:
+    // 1) Upstream dependencies (we aren't exporting + need to resolve name conflict),
+    // 2) `__CARGO_DEFAULT_LIB_METADATA` env var.
     //
-    // Note, though, that the compiler's build system at least wants
+    // Note, however, that the compiler's build system at least wants
     // path dependencies (eg libstd) to have hashes in filenames. To account for
     // that we have an extra hack here which reads the
     // `__CARGO_DEFAULT_LIB_METADATA` environment variable and creates a
@@ -415,14 +454,14 @@ fn compute_metadata<'a, 'cfg>(
     1.hash(&mut hasher);
 
     // Unique metadata per (name, source, version) triple. This'll allow us
-    // to pull crates from anywhere w/o worrying about conflicts
+    // to pull crates from anywhere without worrying about conflicts.
     unit.pkg
         .package_id()
         .stable_hash(bcx.ws.root())
         .hash(&mut hasher);
 
     // Add package properties which map to environment variables
-    // exposed by Cargo
+    // exposed by Cargo.
     let manifest_metadata = unit.pkg.manifest().metadata();
     manifest_metadata.authors.hash(&mut hasher);
     manifest_metadata.description.hash(&mut hasher);
@@ -434,7 +473,7 @@ fn compute_metadata<'a, 'cfg>(
         .features_sorted(unit.pkg.package_id())
         .hash(&mut hasher);
 
-    // Mix in the target-metadata of all the dependencies of this target
+    // Mix in the target-metadata of all the dependencies of this target.
     {
         let mut deps_metadata = cx
             .dep_targets(unit)
@@ -446,12 +485,21 @@ fn compute_metadata<'a, 'cfg>(
     }
 
     // Throw in the profile we're compiling with. This helps caching
-    // panic=abort and panic=unwind artifacts, additionally with various
+    // `panic=abort` and `panic=unwind` artifacts, additionally with various
     // settings like debuginfo and whatnot.
     unit.profile.hash(&mut hasher);
     unit.mode.hash(&mut hasher);
     if let Some(ref args) = bcx.extra_args_for(unit) {
         args.hash(&mut hasher);
+    }
+
+    // Throw in the rustflags we're compiling with.
+    // This helps when the target directory is a shared cache for projects with different cargo configs,
+    // or if the user is experimenting with different rustflags manually.
+    if unit.mode.is_doc() {
+        cx.bcx.rustdocflags_args(unit).ok().hash(&mut hasher);
+    } else {
+        cx.bcx.rustflags_args(unit).ok().hash(&mut hasher);
     }
 
     // Artifacts compiled for the host should have a different metadata
@@ -466,7 +514,7 @@ fn compute_metadata<'a, 'cfg>(
 
     bcx.rustc.verbose_version.hash(&mut hasher);
 
-    // Seed the contents of __CARGO_DEFAULT_LIB_METADATA to the hasher if present.
+    // Seed the contents of `__CARGO_DEFAULT_LIB_METADATA` to the hasher if present.
     // This should be the release channel, to get a different hash for each channel.
     if let Ok(ref channel) = __cargo_default_lib_metadata {
         channel.hash(&mut hasher);

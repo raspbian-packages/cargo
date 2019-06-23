@@ -194,6 +194,10 @@ impl Cipher {
         unsafe { Cipher(ffi::EVP_des_ede3_cbc()) }
     }
 
+    pub fn des_ede3_cfb64() -> Cipher {
+        unsafe { Cipher(ffi::EVP_des_ede3_cfb64()) }
+    }
+
     pub fn rc4() -> Cipher {
         unsafe { Cipher(ffi::EVP_rc4()) }
     }
@@ -418,7 +422,8 @@ impl Crypter {
                 ffi::EVP_CTRL_GCM_SET_TAG,
                 tag.len() as c_int,
                 tag.as_ptr() as *mut _,
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -435,7 +440,8 @@ impl Crypter {
                 ffi::EVP_CTRL_GCM_SET_TAG,
                 tag_len as c_int,
                 ptr::null_mut(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -453,7 +459,8 @@ impl Crypter {
                 &mut len,
                 ptr::null_mut(),
                 data_len as c_int,
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -472,7 +479,8 @@ impl Crypter {
                 &mut len,
                 input.as_ptr(),
                 input.len() as c_int,
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -484,12 +492,16 @@ impl Crypter {
     ///
     /// # Panics
     ///
-    /// Panics if `output.len() < input.len() + block_size` where
-    /// `block_size` is the block size of the cipher (see `Cipher::block_size`),
-    /// or if `output.len() > c_int::max_value()`.
+    /// Panics for stream ciphers if `output.len() < input.len()`.
+    ///
+    /// Panics for block ciphers if `output.len() < input.len() + block_size`,
+    /// where `block_size` is the block size of the cipher (see `Cipher::block_size`).
+    ///
+    /// Panics if `output.len() > c_int::max_value()`.
     pub fn update(&mut self, input: &[u8], output: &mut [u8]) -> Result<usize, ErrorStack> {
         unsafe {
-            assert!(output.len() >= input.len() + self.block_size);
+            let block_size = if self.block_size > 1 { self.block_size } else { 0 };
+            assert!(output.len() >= input.len() + block_size);
             assert!(output.len() <= c_int::max_value() as usize);
             let mut outl = output.len() as c_int;
             let inl = input.len() as c_int;
@@ -515,10 +527,11 @@ impl Crypter {
     ///
     /// # Panics
     ///
-    /// Panics if `output` is less than the cipher's block size.
+    /// Panics for block ciphers if `output.len() < block_size`,
+    /// where `block_size` is the block size of the cipher (see `Cipher::block_size`).
     pub fn finalize(&mut self, output: &mut [u8]) -> Result<usize, ErrorStack> {
         unsafe {
-            assert!(output.len() >= self.block_size);
+            if self.block_size > 1 { assert!(output.len() >= self.block_size); }
             let mut outl = cmp::min(output.len(), c_int::max_value() as usize) as c_int;
 
             cvt(ffi::EVP_CipherFinal(
@@ -547,7 +560,8 @@ impl Crypter {
                 ffi::EVP_CTRL_GCM_GET_TAG,
                 tag.len() as c_int,
                 tag.as_mut_ptr() as *mut _,
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 }
@@ -744,6 +758,22 @@ mod tests {
     use super::*;
     use hex::{self, FromHex};
 
+    #[test]
+    fn test_stream_cipher_output() {
+        let key = [0u8; 16];
+        let iv = [0u8; 16];
+        let mut c = super::Crypter::new(
+            super::Cipher::aes_128_ctr(),
+            super::Mode::Encrypt,
+            &key,
+            Some(&iv),
+        ).unwrap();
+
+        assert_eq!(c.update(&[0u8; 15], &mut [0u8; 15]).unwrap(), 15);
+        assert_eq!(c.update(&[0u8; 1], &mut [0u8; 1]).unwrap(), 1);
+        assert_eq!(c.finalize(&mut [0u8; 0]).unwrap(), 0);
+    }
+
     // Test vectors from FIPS-197:
     // http://csrc.nist.gov/publications/fips/fips197/fips-197.pdf
     #[test]
@@ -766,7 +796,8 @@ mod tests {
             super::Mode::Encrypt,
             &k0,
             None,
-        ).unwrap();
+        )
+        .unwrap();
         c.pad(false);
         let mut r0 = vec![0; c0.len() + super::Cipher::aes_256_ecb().block_size()];
         let count = c.update(&p0, &mut r0).unwrap();
@@ -779,7 +810,8 @@ mod tests {
             super::Mode::Decrypt,
             &k0,
             None,
-        ).unwrap();
+        )
+        .unwrap();
         c.pad(false);
         let mut p1 = vec![0; r0.len() + super::Cipher::aes_256_ecb().block_size()];
         let count = c.update(&r0, &mut p1).unwrap();
@@ -808,7 +840,8 @@ mod tests {
             super::Mode::Decrypt,
             &data,
             Some(&iv),
-        ).unwrap();
+        )
+        .unwrap();
         cr.pad(false);
         let mut unciphered_data = vec![0; data.len() + super::Cipher::aes_256_cbc().block_size()];
         let count = cr.update(&ciphered_data, &mut unciphered_data).unwrap();
@@ -1056,6 +1089,16 @@ mod tests {
     }
 
     #[test]
+    fn test_des_ede3_cfb64() {
+        let pt = "2b1773784b5889dc788477367daa98ad";
+        let ct = "6f2867cfefda048a4046ef7e556c7132";
+        let key = "7cb66337f3d3c0fe7cb66337f3d3c0fe7cb66337f3d3c0fe";
+        let iv = "0001020304050607";
+
+        cipher_test(super::Cipher::des_ede3_cfb64(), pt, ct, key, iv);
+    }
+
+    #[test]
     fn test_aes128_gcm() {
         let key = "0e00c76561d2bd9b40c3c15427e2b08f";
         let iv = "492cadaccd3ca3fbc9cf9f06eb3325c4e159850b0dbe98199b89b7af528806610b6f63998e1eae80c348e7\
@@ -1080,7 +1123,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(pt).unwrap(),
             &mut actual_tag,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(ct, hex::encode(out));
         assert_eq!(tag, hex::encode(actual_tag));
 
@@ -1091,7 +1135,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(ct).unwrap(),
             &Vec::from_hex(tag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(pt, hex::encode(out));
     }
 
@@ -1113,7 +1158,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(pt).unwrap(),
             &mut actual_tag,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(ct, hex::encode(out));
         assert_eq!(tag, hex::encode(actual_tag));
@@ -1125,7 +1171,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(ct).unwrap(),
             &Vec::from_hex(tag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(pt, hex::encode(out));
     }
 
@@ -1167,7 +1214,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(pt).unwrap(),
             &mut actual_tag,
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(ct, hex::encode(out));
         assert_eq!(tag, hex::encode(actual_tag));
@@ -1179,7 +1227,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(ct).unwrap(),
             &Vec::from_hex(tag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(pt, hex::encode(out));
     }
 
@@ -1242,7 +1291,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(pt).unwrap(),
             &mut actual_tag,
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(ct, hex::encode(out));
         assert_eq!(tag, hex::encode(actual_tag));
 
@@ -1253,7 +1303,8 @@ mod tests {
             &Vec::from_hex(aad).unwrap(),
             &Vec::from_hex(ct).unwrap(),
             &Vec::from_hex(tag).unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(pt, hex::encode(out));
     }
 }

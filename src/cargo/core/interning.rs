@@ -14,7 +14,7 @@ pub fn leak(s: String) -> &'static str {
     Box::leak(s.into_boxed_str())
 }
 
-lazy_static! {
+lazy_static::lazy_static! {
     static ref STRING_CACHE: Mutex<HashSet<&'static str>> = Mutex::new(HashSet::new());
 }
 
@@ -57,7 +57,7 @@ impl Deref for InternedString {
 }
 
 impl Hash for InternedString {
-    // NB: we can't implement this as `identity(self).hash(state)`,
+    // N.B., we can't implement this as `identity(self).hash(state)`,
     // because we use this for on-disk fingerprints and so need
     // stability across Cargo invocations.
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -66,7 +66,7 @@ impl Hash for InternedString {
 }
 
 impl Borrow<str> for InternedString {
-    // if we implement Hash as `identity(self).hash(state)`,
+    // If we implement Hash as `identity(self).hash(state)`,
     // then this will nead to be removed.
     fn borrow(&self) -> &str {
         self.as_str()
@@ -74,13 +74,13 @@ impl Borrow<str> for InternedString {
 }
 
 impl fmt::Debug for InternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(self.as_str(), f)
     }
 }
 
 impl fmt::Display for InternedString {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.as_str(), f)
     }
 }

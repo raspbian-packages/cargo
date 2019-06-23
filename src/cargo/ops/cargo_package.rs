@@ -6,17 +6,17 @@ use std::sync::Arc;
 
 use flate2::read::GzDecoder;
 use flate2::{Compression, GzBuilder};
-use git2;
-use serde_json;
+use log::debug;
+use serde_json::{self, json};
 use tar::{Archive, Builder, EntryType, Header};
 
-use core::compiler::{BuildConfig, CompileMode, DefaultExecutor, Executor};
-use core::{Package, Source, SourceId, Workspace};
-use ops;
-use sources::PathSource;
-use util::errors::{CargoResult, CargoResultExt};
-use util::paths;
-use util::{self, internal, Config, FileLock};
+use crate::core::compiler::{BuildConfig, CompileMode, DefaultExecutor, Executor};
+use crate::core::{Package, Source, SourceId, Workspace};
+use crate::ops;
+use crate::sources::PathSource;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::paths;
+use crate::util::{self, internal, Config, FileLock};
 
 pub struct PackageOpts<'cfg> {
     pub config: &'cfg Config,
@@ -26,12 +26,14 @@ pub struct PackageOpts<'cfg> {
     pub verify: bool,
     pub jobs: Option<u32>,
     pub target: Option<String>,
-    pub registry: Option<String>,
+    pub features: Vec<String>,
+    pub all_features: bool,
+    pub no_default_features: bool,
 }
 
 static VCS_INFO_FILE: &'static str = ".cargo_vcs_info.json";
 
-pub fn package(ws: &Workspace, opts: &PackageOpts) -> CargoResult<Option<FileLock>> {
+pub fn package(ws: &Workspace<'_>, opts: &PackageOpts<'_>) -> CargoResult<Option<FileLock>> {
     ops::resolve_ws(ws)?;
     let pkg = ws.current()?;
     let config = ws.config();
@@ -67,7 +69,7 @@ pub fn package(ws: &Workspace, opts: &PackageOpts) -> CargoResult<Option<FileLoc
         let mut list: Vec<_> = src
             .list_files(pkg)?
             .iter()
-            .map(|file| util::without_prefix(file, root).unwrap().to_path_buf())
+            .map(|file| file.strip_prefix(root).unwrap().to_path_buf())
             .collect();
         if include_lockfile(pkg) {
             list.push("Cargo.lock".into());
@@ -98,7 +100,7 @@ pub fn package(ws: &Workspace, opts: &PackageOpts) -> CargoResult<Option<FileLoc
         .status("Packaging", pkg.package_id().to_string())?;
     dst.file().set_len(0)?;
     tar(ws, &src_files, vcs_info.as_ref(), dst.file(), &filename)
-        .chain_err(|| format_err!("failed to prepare local package for uploading"))?;
+        .chain_err(|| failure::format_err!("failed to prepare local package for uploading"))?;
     if opts.verify {
         dst.seek(SeekFrom::Start(0))?;
         run_verify(ws, &dst, opts).chain_err(|| "failed to verify package tarball")?
@@ -117,7 +119,7 @@ fn include_lockfile(pkg: &Package) -> bool {
     pkg.manifest().publish_lockfile() && pkg.targets().iter().any(|t| t.is_example() || t.is_bin())
 }
 
-// check that the package has some piece of metadata that a human can
+// Checks that the package has some piece of metadata that a human can
 // use to tell what the package is about.
 fn check_metadata(pkg: &Package, config: &Config) -> CargoResult<()> {
     let md = pkg.manifest().metadata();
@@ -141,7 +143,7 @@ fn check_metadata(pkg: &Package, config: &Config) -> CargoResult<()> {
 
     if !missing.is_empty() {
         let mut things = missing[..missing.len() - 1].join(", ");
-        // things will be empty if and only if length == 1 (i.e. the only case
+        // `things` will be empty if and only if its length is 1 (i.e., the only case
         // to have no `or`).
         if !things.is_empty() {
             things.push_str(" or ");
@@ -150,18 +152,18 @@ fn check_metadata(pkg: &Package, config: &Config) -> CargoResult<()> {
 
         config.shell().warn(&format!(
             "manifest has no {things}.\n\
-             See http://doc.crates.io/manifest.html#package-metadata for more info.",
+             See <http://doc.crates.io/manifest.html#package-metadata> for more info.",
             things = things
         ))?
     }
     Ok(())
 }
 
-// check that the package dependencies are safe to deploy.
+// Checks that the package dependencies are safe to deploy.
 fn verify_dependencies(pkg: &Package) -> CargoResult<()> {
     for dep in pkg.dependencies() {
         if dep.source_id().is_path() && !dep.specified_req() {
-            bail!(
+            failure::bail!(
                 "all path dependencies must have a version specified \
                  when packaging.\ndependency `{}` does not specify \
                  a version.",
@@ -172,8 +174,8 @@ fn verify_dependencies(pkg: &Package) -> CargoResult<()> {
     Ok(())
 }
 
-// Check if the package source is in a *git* DVCS repository. If *git*, and
-// the source is *dirty* (e.g. has uncommited changes) and not `allow_dirty`
+// Checks if the package source is in a *git* DVCS repository. If *git*, and
+// the source is *dirty* (e.g., has uncommited changes) and not `allow_dirty`
 // then `bail!` with an informative message. Otherwise return the sha1 hash of
 // the current *HEAD* commit, or `None` if *dirty*.
 fn check_repo_state(
@@ -210,8 +212,8 @@ fn check_repo_state(
         })?;
     }
 
-    // No VCS with a checked in Cargo.toml found. so we don't know if the
-    // directory is dirty or not, so we have to assume that it's clean.
+    // No VCS with a checked in `Cargo.toml` found, so we don't know if the
+    // directory is dirty or not, thus we have to assume that it's clean.
     return Ok(None);
 
     fn git(
@@ -243,7 +245,7 @@ fn check_repo_state(
             Ok(Some(rev_obj.id().to_string()))
         } else {
             if !allow_dirty {
-                bail!(
+                failure::bail!(
                     "{} files in the working directory contain changes that were \
                      not yet committed into git:\n\n{}\n\n\
                      to proceed despite this, pass the `--allow-dirty` flag",
@@ -256,17 +258,16 @@ fn check_repo_state(
     }
 }
 
-// Check for and `bail!` if a source file matches ROOT/VCS_INFO_FILE, since
-// this is now a cargo reserved file name, and we don't want to allow
-// forgery.
+// Checks for and `bail!` if a source file matches `ROOT/VCS_INFO_FILE`, since
+// this is now a Cargo reserved file name, and we don't want to allow forgery.
 fn check_vcs_file_collision(pkg: &Package, src_files: &[PathBuf]) -> CargoResult<()> {
     let root = pkg.root();
     let vcs_info_path = Path::new(VCS_INFO_FILE);
     let collision = src_files
         .iter()
-        .find(|&p| util::without_prefix(&p, root).unwrap() == vcs_info_path);
+        .find(|&p| p.strip_prefix(root).unwrap() == vcs_info_path);
     if collision.is_some() {
-        bail!(
+        failure::bail!(
             "Invalid inclusion of reserved file name \
              {} in package source",
             VCS_INFO_FILE
@@ -276,28 +277,28 @@ fn check_vcs_file_collision(pkg: &Package, src_files: &[PathBuf]) -> CargoResult
 }
 
 fn tar(
-    ws: &Workspace,
+    ws: &Workspace<'_>,
     src_files: &[PathBuf],
     vcs_info: Option<&serde_json::Value>,
     dst: &File,
     filename: &str,
 ) -> CargoResult<()> {
-    // Prepare the encoder and its header
+    // Prepare the encoder and its header.
     let filename = Path::new(filename);
     let encoder = GzBuilder::new()
         .filename(util::path2bytes(filename)?)
         .write(dst, Compression::best());
 
-    // Put all package files into a compressed archive
+    // Put all package files into a compressed archive.
     let mut ar = Builder::new(encoder);
     let pkg = ws.current()?;
     let config = ws.config();
     let root = pkg.root();
     for file in src_files.iter() {
-        let relative = util::without_prefix(file, root).unwrap();
+        let relative = file.strip_prefix(root)?;
         check_filename(relative)?;
         let relative = relative.to_str().ok_or_else(|| {
-            format_err!("non-utf8 path in source directory: {}", relative.display())
+            failure::format_err!("non-utf8 path in source directory: {}", relative.display())
         })?;
         config
             .shell()
@@ -310,7 +311,7 @@ fn tar(
             relative
         );
 
-        // The tar::Builder type by default will build GNU archives, but
+        // The `tar::Builder` type by default will build GNU archives, but
         // unfortunately we force it here to use UStar archives instead. The
         // UStar format has more limitations on the length of path name that it
         // can encode, so it's not quite as nice to use.
@@ -327,7 +328,7 @@ fn tar(
         //
         // For an instance of this in the wild, use the tar-rs 0.3.3 library to
         // unpack the selectors 0.4.0 crate on crates.io. Either that or take a
-        // look at rust-lang/cargo#2326
+        // look at rust-lang/cargo#2326.
         let mut header = Header::new_ustar();
         header
             .set_path(&path)
@@ -414,7 +415,7 @@ fn tar(
     Ok(())
 }
 
-fn run_verify(ws: &Workspace, tar: &FileLock, opts: &PackageOpts) -> CargoResult<()> {
+fn run_verify(ws: &Workspace<'_>, tar: &FileLock, opts: &PackageOpts<'_>) -> CargoResult<()> {
     let config = ws.config();
     let pkg = ws.current()?;
 
@@ -441,16 +442,16 @@ fn run_verify(ws: &Workspace, tar: &FileLock, opts: &PackageOpts) -> CargoResult
     let pkg_fingerprint = src.last_modified_file(&new_pkg)?;
     let ws = Workspace::ephemeral(new_pkg, config, None, true)?;
 
-    let exec: Arc<Executor> = Arc::new(DefaultExecutor);
+    let exec: Arc<dyn Executor> = Arc::new(DefaultExecutor);
     ops::compile_ws(
         &ws,
         None,
         &ops::CompileOptions {
             config,
             build_config: BuildConfig::new(config, opts.jobs, &opts.target, CompileMode::Build)?,
-            features: Vec::new(),
-            no_default_features: false,
-            all_features: false,
+            features: opts.features.clone(),
+            no_default_features: opts.no_default_features,
+            all_features: opts.all_features,
             spec: ops::Packages::Packages(Vec::new()),
             filter: ops::CompileFilter::Default {
                 required_features_filterable: true,
@@ -463,11 +464,11 @@ fn run_verify(ws: &Workspace, tar: &FileLock, opts: &PackageOpts) -> CargoResult
         &exec,
     )?;
 
-    // Check that build.rs didn't modify any files in the src directory.
+    // Check that `build.rs` didn't modify any files in the `src` directory.
     let ws_fingerprint = src.last_modified_file(ws.current()?)?;
     if pkg_fingerprint != ws_fingerprint {
         let (_, path) = ws_fingerprint;
-        bail!(
+        failure::bail!(
             "Source directory was modified by build.rs during cargo publish. \
              Build scripts should not modify anything outside of OUT_DIR. \
              Modified file: {}\n\n\
@@ -492,7 +493,7 @@ fn check_filename(file: &Path) -> CargoResult<()> {
     };
     let name = match name.to_str() {
         Some(name) => name,
-        None => bail!(
+        None => failure::bail!(
             "path does not have a unicode filename which may not unpack \
              on all platforms: {}",
             file.display()
@@ -500,7 +501,7 @@ fn check_filename(file: &Path) -> CargoResult<()> {
     };
     let bad_chars = ['/', '\\', '<', '>', ':', '"', '|', '?', '*'];
     if let Some(c) = bad_chars.iter().find(|c| name.contains(**c)) {
-        bail!(
+        failure::bail!(
             "cannot package a filename with a special character `{}`: {}",
             c,
             file.display()

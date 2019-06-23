@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use core::{Dependency, PackageId, Registry, Summary};
+use crate::core::{Dependency, PackageId, Registry, Summary};
+use crate::util::lev_distance::lev_distance;
+use crate::util::Config;
 use failure::{Error, Fail};
 use semver;
-use util::lev_distance::lev_distance;
-use util::{CargoError, Config};
 
 use super::context::Context;
 use super::types::{Candidate, ConflictReason};
@@ -32,19 +32,19 @@ impl ResolveError {
 }
 
 impl Fail for ResolveError {
-    fn cause(&self) -> Option<&Fail> {
+    fn cause(&self) -> Option<&dyn Fail> {
         self.cause.as_fail().cause()
     }
 }
 
 impl fmt::Debug for ResolveError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.cause.fmt(f)
     }
 }
 
 impl fmt::Display for ResolveError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.cause.fmt(f)
     }
 }
@@ -52,7 +52,7 @@ impl fmt::Display for ResolveError {
 pub type ActivateResult<T> = Result<T, ActivateError>;
 
 pub enum ActivateError {
-    Fatal(CargoError),
+    Fatal(failure::Error),
     Conflict(PackageId, ConflictReason),
 }
 
@@ -70,7 +70,7 @@ impl From<(PackageId, ConflictReason)> for ActivateError {
 
 pub(super) fn activation_error(
     cx: &Context,
-    registry: &mut Registry,
+    registry: &mut dyn Registry,
     parent: &Summary,
     dep: &Dependency,
     conflicting_activations: &BTreeMap<PackageId, ConflictReason>,
@@ -161,7 +161,7 @@ pub(super) fn activation_error(
         msg.push_str(&*dep.package_name());
         msg.push_str("` which could resolve this conflict");
 
-        return to_resolve_err(format_err!("{}", msg));
+        return to_resolve_err(failure::format_err!("{}", msg));
     }
 
     // We didn't actually find any candidates, so we need to
@@ -253,8 +253,15 @@ pub(super) fn activation_error(
                 names.push("...");
             }
 
-            msg.push_str("did you mean: ");
-            msg.push_str(&names.join(", "));
+            msg.push_str("perhaps you meant: ");
+            msg.push_str(&names.iter().enumerate().fold(
+                String::default(),
+                |acc, (i, el)| match i {
+                    0 => acc + el,
+                    i if names.len() - 1 == i && candidates.len() <= 3 => acc + " or " + el,
+                    _ => acc + ", " + el,
+                },
+            ));
             msg.push_str("\n");
         }
         msg.push_str("required by ");
@@ -268,13 +275,13 @@ pub(super) fn activation_error(
             msg.push_str(
                 "\nAs a reminder, you're using offline mode (-Z offline) \
                  which can sometimes cause surprising resolution failures, \
-                 if this error is too confusing you may with to retry \
+                 if this error is too confusing you may wish to retry \
                  without the offline flag.",
             );
         }
     }
 
-    to_resolve_err(format_err!("{}", msg))
+    to_resolve_err(failure::format_err!("{}", msg))
 }
 
 /// Returns String representation of dependency chain for a particular `pkgid`.

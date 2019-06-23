@@ -87,9 +87,11 @@
 //! [`NamedTempFile`]: struct.NamedTempFile.html
 //! [`std::env::temp_dir()`]: https://doc.rust-lang.org/std/env/fn.temp_dir.html
 
-#![doc(html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
-       html_favicon_url = "https://www.rust-lang.org/favicon.ico",
-       html_root_url = "https://docs.rs/tempfile/2.2.0")]
+#![doc(
+    html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
+    html_favicon_url = "https://www.rust-lang.org/favicon.ico",
+    html_root_url = "https://docs.rs/tempfile/2.2.0"
+)]
 #![cfg_attr(test, deny(warnings))]
 
 #[macro_use]
@@ -109,33 +111,34 @@ extern crate syscall;
 const NUM_RETRIES: u32 = 1 << 31;
 const NUM_RAND_CHARS: usize = 6;
 
+use std::ffi::OsStr;
 use std::path::Path;
 use std::{env, io};
 
-mod error;
 mod dir;
+mod error;
 mod file;
-mod util;
 mod spooled;
+mod util;
 
 pub use dir::{tempdir, tempdir_in, TempDir};
-pub use file::{tempfile, tempfile_in, NamedTempFile, PersistError, TempPath};
+pub use file::{tempfile, tempfile_in, NamedTempFile, PathPersistError, PersistError, TempPath};
 pub use spooled::{spooled_tempfile, SpooledTempFile};
 
 /// Create a new temporary file or directory with custom parameters.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Builder<'a, 'b> {
     random_len: usize,
-    prefix: &'a str,
-    suffix: &'b str,
+    prefix: &'a OsStr,
+    suffix: &'b OsStr,
 }
 
 impl<'a, 'b> Default for Builder<'a, 'b> {
     fn default() -> Self {
         Builder {
             random_len: ::NUM_RAND_CHARS,
-            prefix: ".tmp",
-            suffix: "",
+            prefix: OsStr::new(".tmp"),
+            suffix: OsStr::new(""),
         }
     }
 }
@@ -239,8 +242,8 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn prefix(&mut self, prefix: &'a str) -> &mut Self {
-        self.prefix = prefix;
+    pub fn prefix<S: AsRef<OsStr> + ?Sized>(&mut self, prefix: &'a S) -> &mut Self {
+        self.prefix = prefix.as_ref();
         self
     }
 
@@ -267,8 +270,8 @@ impl<'a, 'b> Builder<'a, 'b> {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn suffix(&mut self, suffix: &'b str) -> &mut Self {
-        self.suffix = suffix;
+    pub fn suffix<S: AsRef<OsStr> + ?Sized>(&mut self, suffix: &'b S) -> &mut Self {
+        self.suffix = suffix.as_ref();
         self
     }
 

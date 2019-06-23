@@ -6,11 +6,11 @@ use std::path::PathBuf;
 use semver::Version;
 
 use super::BuildContext;
-use core::{Edition, Package, PackageId, Target, TargetKind};
-use util::{self, join_paths, process, CargoResult, CfgExpr, Config, ProcessBuilder};
+use crate::core::{Edition, Package, PackageId, Target, TargetKind};
+use crate::util::{self, join_paths, process, CargoResult, CfgExpr, Config, ProcessBuilder};
 
 pub struct Doctest {
-    /// The package being doctested.
+    /// The package being doc-tested.
     pub package: Package,
     /// The target being tested (currently always the package's lib).
     pub target: Target,
@@ -89,6 +89,9 @@ impl<'cfg> Compilation<'cfg> {
         } else {
             bcx.rustc.process()
         };
+        if bcx.config.extra_verbose() {
+            rustc.display_env_vars();
+        }
         for (k, v) in bcx.build_config.extra_rustc_env.iter() {
             rustc.env(k, v);
         }
@@ -100,7 +103,8 @@ impl<'cfg> Compilation<'cfg> {
             server.configure(&mut rustc);
         }
         Ok(Compilation {
-            native_dirs: BTreeSet::new(), // TODO: deprecated, remove
+            // TODO: deprecated; remove.
+            native_dirs: BTreeSet::new(),
             root_output: PathBuf::from("/"),
             deps_output: PathBuf::from("/"),
             host_deps_output: PathBuf::from("/"),
@@ -193,6 +197,17 @@ impl<'cfg> Compilation<'cfg> {
         };
 
         search_path.extend(util::dylib_path().into_iter());
+        if cfg!(target_os = "macos") {
+            // These are the defaults when DYLD_FALLBACK_LIBRARY_PATH isn't
+            // set. Since Cargo is explicitly setting the value, make sure the
+            // defaults still work.
+            if let Ok(home) = env::var("HOME") {
+                search_path.push(PathBuf::from(home).join("lib"));
+            }
+            search_path.push(PathBuf::from("/usr/local/lib"));
+            search_path.push(PathBuf::from("/lib"));
+            search_path.push(PathBuf::from("/usr/lib"));
+        }
         let search_path = join_paths(&search_path, util::dylib_path_envvar())?;
 
         cmd.env(util::dylib_path_envvar(), &search_path);
@@ -205,7 +220,7 @@ impl<'cfg> Compilation<'cfg> {
         let metadata = pkg.manifest().metadata();
 
         let cargo_exe = self.config.cargo_exe()?;
-        cmd.env(::CARGO_ENV, cargo_exe);
+        cmd.env(crate::CARGO_ENV, cargo_exe);
 
         // When adding new environment variables depending on
         // crate properties which might require rebuild upon change
@@ -256,7 +271,7 @@ fn pre_version_component(v: &Version) -> String {
     ret
 }
 
-fn target_runner(bcx: &BuildContext) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
+fn target_runner(bcx: &BuildContext<'_, '_>) -> CargoResult<Option<(PathBuf, Vec<String>)>> {
     let target = bcx.target_triple();
 
     // try target.{}.runner
@@ -276,7 +291,7 @@ fn target_runner(bcx: &BuildContext) -> CargoResult<Option<(PathBuf, Vec<String>
                     if let Some(runner) = bcx.config.get_path_and_args(&key)? {
                         // more than one match, error out
                         if matching_runner.is_some() {
-                            bail!(
+                            failure::bail!(
                                 "several matching instances of `target.'cfg(..)'.runner` \
                                  in `.cargo/config`"
                             )

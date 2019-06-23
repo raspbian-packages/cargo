@@ -1,4 +1,4 @@
-cargo (0.33.0-3+rpi1) buster-staging; urgency=medium
+cargo (0.35.0-2+rpi1) buster-staging; urgency=medium
 
   [changes brought forward from 0.33.0-1+rpi1 by Peter Michael Green <plugwash@raspbian.org> at Sat, 02 Mar 2019 11:51:21 +0000]
   * Add workaround for apparently miscalculated logarithms in typenum.
@@ -7,7 +7,20 @@ cargo (0.33.0-3+rpi1) buster-staging; urgency=medium
   * Revert 1001_typenum_pr_115.patch , it conflicts with our typenum patch.
   * Disable testsuite.
 
- -- Peter Micheal Green <plugwash@raspbian.org>  Thu, 06 Jun 2019 16:18:44 +0000
+ -- Raspbian forward porter <root@raspbian.org>  Sun, 23 Jun 2019 23:09:16 +0000
+
+cargo (0.35.0-2) unstable; urgency=medium
+
+  * Use more portable flags in tests, fixing FTBFS on mips.
+    (Closes: #930218)
+
+ -- Ximin Luo <infinity0@debian.org>  Sat, 08 Jun 2019 11:04:43 -0700
+
+cargo (0.35.0-1) unstable; urgency=medium
+
+  * New upstream release.
+
+ -- Ximin Luo <infinity0@debian.org>  Fri, 31 May 2019 00:29:11 -0700
 
 cargo (0.33.0-3) unstable; urgency=medium
 

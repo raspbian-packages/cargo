@@ -14,6 +14,7 @@ use {AnnotatedCommit, MergeOptions, SubmoduleIgnore, SubmoduleStatus, MergeAnaly
 use {ObjectType, Tag, Note, Notes, StatusOptions, Statuses, Status, Revwalk};
 use {RevparseMode, RepositoryInitMode, Reflog, IntoCString, Describe};
 use {DescribeOptions, TreeBuilder, Diff, DiffOptions, PackBuilder, Odb};
+use {Rebase, RebaseOptions};
 use build::{RepoBuilder, CheckoutBuilder};
 use stash::{StashApplyOptions, StashCbData, stash_cb};
 use string_array::StringArray;
@@ -171,9 +172,9 @@ impl Repository {
         Repository::init_opts(path, RepositoryInitOptions::new().bare(true))
     }
 
-    /// Creates a new `--bare` repository in the specified folder.
+    /// Creates a new repository in the specified folder with the given options.
     ///
-    /// The folder must exist prior to invoking this function.
+    /// See `RepositoryInitOptions` struct for more information.
     pub fn init_opts<P: AsRef<Path>>(path: P, opts: &RepositoryInitOptions)
                      -> Result<Repository, Error> {
         init();
@@ -1573,6 +1574,42 @@ impl Repository {
             Ok((MergeAnalysis::from_bits_truncate(raw_merge_analysis as u32), MergePreference::from_bits_truncate(raw_merge_preference as u32)))
         }
     }
+
+    /// Initializes a rebase operation to rebase the changes in `branch`
+    /// relative to `upstream` onto another branch. To begin the rebase process,
+    /// call `next()`.
+    pub fn rebase(&self,
+                  branch: Option<&AnnotatedCommit>,
+                  upstream: Option<&AnnotatedCommit>,
+                  onto: Option<&AnnotatedCommit>,
+                  opts: Option<&mut RebaseOptions>) -> Result<Rebase, Error> {
+
+        let mut rebase: *mut raw::git_rebase = ptr::null_mut();
+        unsafe {
+            try_call!(raw::git_rebase_init(
+                &mut rebase,
+                self.raw(),
+                branch.map(|c| c.raw()),
+                upstream.map(|c| c.raw()),
+                onto.map(|c| c.raw()),
+                opts.map(|o| o.raw()).unwrap_or(ptr::null())));
+
+                Ok(Rebase::from_raw(rebase))
+        }
+    }
+
+    /// Opens an existing rebase that was previously started by either an
+    /// invocation of `rebase()` or by another client.
+    pub fn open_rebase(&self, opts: Option<&mut RebaseOptions>) -> Result<Rebase, Error> {
+        let mut rebase: *mut raw::git_rebase = ptr::null_mut();
+        unsafe {
+            try_call!(raw::git_rebase_open(&mut rebase, self.raw(), opts.map(|o| o.raw()).unwrap_or(ptr::null())));
+            Ok(Rebase::from_raw(rebase))
+
+        }
+    }
+
+
 
     /// Add a note for an object
     ///

@@ -2,12 +2,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::str::FromStr;
 
+use log::debug;
 use serde::de;
 use serde::ser;
+use serde::{Deserialize, Serialize};
 
-use core::{Dependency, Package, PackageId, SourceId, Workspace};
-use util::errors::{CargoError, CargoResult, CargoResultExt};
-use util::{internal, Graph};
+use crate::core::{Dependency, Package, PackageId, SourceId, Workspace};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{internal, Graph};
 
 use super::Resolve;
 
@@ -30,7 +32,7 @@ struct Patch {
 pub type Metadata = BTreeMap<String, String>;
 
 impl EncodableResolve {
-    pub fn into_resolve(self, ws: &Workspace) -> CargoResult<Resolve> {
+    pub fn into_resolve(self, ws: &Workspace<'_>) -> CargoResult<Resolve> {
         let path_deps = build_path_deps(ws);
 
         let packages = {
@@ -42,7 +44,7 @@ impl EncodableResolve {
         };
 
         // `PackageId`s in the lock file don't include the `source` part
-        // for workspace members, so we reconstruct proper ids.
+        // for workspace members, so we reconstruct proper IDs.
         let live_pkgs = {
             let mut live_pkgs = HashMap::new();
             let mut all_pkgs = HashSet::new();
@@ -54,7 +56,7 @@ impl EncodableResolve {
                 };
 
                 if !all_pkgs.insert(enc_id.clone()) {
-                    bail!("package `{}` is specified twice in the lockfile", pkg.name);
+                    failure::bail!("package `{}` is specified twice in the lockfile", pkg.name);
                 }
                 let id = match pkg.source.as_ref().or_else(|| path_deps.get(&pkg.name)) {
                     // We failed to find a local package in the workspace.
@@ -173,8 +175,8 @@ impl EncodableResolve {
     }
 }
 
-fn build_path_deps(ws: &Workspace) -> HashMap<String, SourceId> {
-    // If a crate is *not* a path source, then we're probably in a situation
+fn build_path_deps(ws: &Workspace<'_>) -> HashMap<String, SourceId> {
+    // If a crate is **not** a path source, then we're probably in a situation
     // such as `cargo install` with a lock file from a remote dependency. In
     // that case we don't need to fixup any path dependencies (as they're not
     // actually path dependencies any more), so we ignore them.
@@ -208,7 +210,7 @@ fn build_path_deps(ws: &Workspace) -> HashMap<String, SourceId> {
 
     fn build_pkg(
         pkg: &Package,
-        ws: &Workspace,
+        ws: &Workspace<'_>,
         ret: &mut HashMap<String, SourceId>,
         visited: &mut HashSet<SourceId>,
     ) {
@@ -219,7 +221,7 @@ fn build_path_deps(ws: &Workspace) -> HashMap<String, SourceId> {
 
     fn build_dep(
         dep: &Dependency,
-        ws: &Workspace,
+        ws: &Workspace<'_>,
         ret: &mut HashMap<String, SourceId>,
         visited: &mut HashSet<SourceId>,
     ) {
@@ -264,7 +266,7 @@ pub struct EncodablePackageId {
 }
 
 impl fmt::Display for EncodablePackageId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {}", self.name, self.version)?;
         if let Some(ref s) = self.source {
             write!(f, " ({})", s.to_url())?;
@@ -274,7 +276,7 @@ impl fmt::Display for EncodablePackageId {
 }
 
 impl FromStr for EncodablePackageId {
-    type Err = CargoError;
+    type Err = failure::Error;
 
     fn from_str(s: &str) -> CargoResult<EncodablePackageId> {
         let mut s = s.splitn(3, ' ');
@@ -287,7 +289,7 @@ impl FromStr for EncodablePackageId {
                 if s.starts_with('(') && s.ends_with(')') {
                     Some(SourceId::from_url(&s[1..s.len() - 1])?)
                 } else {
-                    bail!("invalid serialized PackageId")
+                    failure::bail!("invalid serialized PackageId")
                 }
             }
             None => None,

@@ -4,11 +4,11 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::str;
 
+use crate::support::cargo_process;
+use crate::support::paths::{self, CargoPathExt};
+use crate::support::registry::Package;
+use crate::support::{basic_bin_manifest, basic_manifest, cargo_exe, project, Project};
 use cargo;
-use support::cargo_process;
-use support::paths::{self, CargoPathExt};
-use support::registry::Package;
-use support::{basic_bin_manifest, basic_manifest, cargo_exe, project, Project};
 
 #[cfg_attr(windows, allow(dead_code))]
 enum FakeKind<'a> {
@@ -16,9 +16,10 @@ enum FakeKind<'a> {
     Symlink { target: &'a Path },
 }
 
-/// Add an empty file with executable flags (and platform-dependent suffix).
-/// TODO: move this to `Project` if other cases using this emerge.
-fn fake_file(proj: Project, dir: &Path, name: &str, kind: &FakeKind) -> Project {
+/// Adds an empty file with executable flags (and platform-dependent suffix).
+//
+// TODO: move this to `Project` if other cases using this emerge.
+fn fake_file(proj: Project, dir: &Path, name: &str, kind: &FakeKind<'_>) -> Project {
     let path = proj
         .root()
         .join(dir)
@@ -64,9 +65,14 @@ fn path() -> Vec<PathBuf> {
 fn list_commands_with_descriptions() {
     let p = project().build();
     p.cargo("--list")
-        .with_stdout_contains("    build                Compile a local package and all of its dependencies")
-        // assert read-manifest prints the right one-line description followed by another command, indented.
-        .with_stdout_contains("    read-manifest        Print a JSON representation of a Cargo.toml manifest.")
+        .with_stdout_contains(
+            "    build                Compile a local package and all of its dependencies",
+        )
+        // Assert that `read-manifest` prints the right one-line description followed by another
+        // command, indented.
+        .with_stdout_contains(
+            "    read-manifest        Print a JSON representation of a Cargo.toml manifest.",
+        )
         .run();
 }
 
@@ -83,7 +89,10 @@ fn list_command_looks_at_path() {
     let mut path = path();
     path.push(proj.root().join("path-test"));
     let path = env::join_paths(path.iter()).unwrap();
-    let output = cargo_process("-v --list").env("PATH", &path).exec_with_output().unwrap();
+    let output = cargo_process("-v --list")
+        .env("PATH", &path)
+        .exec_with_output()
+        .unwrap();
     let output = str::from_utf8(&output.stdout).unwrap();
     assert!(
         output.contains("\n    1                   "),
@@ -92,7 +101,7 @@ fn list_command_looks_at_path() {
     );
 }
 
-// windows and symlinks don't currently agree that well
+// Windows and symlinks don't currently mix well.
 #[cfg(unix)]
 #[test]
 fn list_command_resolves_symlinks() {
@@ -109,7 +118,10 @@ fn list_command_resolves_symlinks() {
     let mut path = path();
     path.push(proj.root().join("path-test"));
     let path = env::join_paths(path.iter()).unwrap();
-    let output = cargo_process("-v --list").env("PATH", &path).exec_with_output().unwrap();
+    let output = cargo_process("-v --list")
+        .env("PATH", &path)
+        .exec_with_output()
+        .unwrap();
     let output = str::from_utf8(&output.stdout).unwrap();
     assert!(
         output.contains("\n    2                   "),
@@ -128,7 +140,8 @@ error: no such subcommand: `biuld`
 
 <tab>Did you mean `build`?
 ",
-        ).run();
+        )
+        .run();
 
     // But, if we actually have `biuld`, it must work!
     // https://github.com/rust-lang/cargo/issues/5201
@@ -140,7 +153,8 @@ error: no such subcommand: `biuld`
                 println!("Similar, but not identical to, build");
             }
         "#,
-        ).publish();
+        )
+        .publish();
 
     cargo_process("install cargo-biuld").run();
     cargo_process("biuld")
@@ -149,11 +163,12 @@ error: no such subcommand: `biuld`
     cargo_process("--list")
         .with_stdout_contains(
             "    build                Compile a local package and all of its dependencies\n",
-        ).with_stdout_contains("    biuld\n")
+        )
+        .with_stdout_contains("    biuld\n")
         .run();
 }
 
-// if a subcommand is more than 3 edit distance away, we don't make a suggestion
+// If a subcommand is more than an edit distance of 3 away, we don't make a suggestion.
 #[test]
 fn find_closest_dont_correct_nonsense() {
     cargo_process("there-is-no-way-that-there-is-a-command-close-to-this")
@@ -163,7 +178,8 @@ fn find_closest_dont_correct_nonsense() {
             "[ERROR] no such subcommand: \
                         `there-is-no-way-that-there-is-a-command-close-to-this`
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -188,7 +204,8 @@ fn override_cargo_home() {
         email = "bar"
         git = false
     "#,
-        ).unwrap();
+        )
+        .unwrap();
 
     cargo_process("new foo")
         .env("USER", "foo")
@@ -252,7 +269,8 @@ fn cargo_subcommand_args() {
                 println!("{:?}", args);
             }
         "#,
-        ).build();
+        )
+        .build();
 
     p.cargo("build").run();
     let cargo_foo_bin = p.bin("cargo-foo");
@@ -291,7 +309,8 @@ fn cargo_help_external_subcommand() {
                     println!("fancy help output");
                 }
             }"#,
-        ).publish();
+        )
+        .publish();
     cargo_process("install cargo-fake-help").run();
     cargo_process("help fake-help")
         .with_stdout("fancy help output\n")
@@ -303,15 +322,17 @@ fn explain() {
     cargo_process("--explain E0001")
         .with_stdout_contains(
             "This error suggests that the expression arm corresponding to the noted pattern",
-        ).run();
+        )
+        .run();
 }
 
-// Test that the output of 'cargo -Z help' shows a different help screen with
-// all the -Z flags.
+// Test that the output of `cargo -Z help` shows a different help screen with
+// all the `-Z` flags.
 #[test]
 fn z_flags_help() {
     cargo_process("-Z help")
         .with_stdout_contains(
             "    -Z unstable-options -- Allow the usage of unstable options such as --registry",
-        ).run();
+        )
+        .run();
 }

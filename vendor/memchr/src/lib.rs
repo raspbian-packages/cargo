@@ -33,8 +33,6 @@ compile_error!("memchr currently not supported on non-32 or non-64 bit");
 #[cfg(feature = "use_std")]
 extern crate core;
 
-#[macro_use]
-extern crate cfg_if;
 #[cfg(test)]
 #[macro_use]
 extern crate quickcheck;
@@ -43,17 +41,14 @@ use core::iter::Rev;
 
 pub use iter::{Memchr, Memchr2, Memchr3};
 
-#[cfg(all(
-    feature = "libc",
-    not(target_arch = "wasm32"),
-    not(target_env = "sgx"),
-))]
+// N.B. If you're looking for the cfg knobs for libc, see build.rs.
+#[cfg(memchr_libc)]
 mod c;
 #[allow(dead_code)]
 mod fallback;
 mod iter;
 mod naive;
-#[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))]
+#[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
 mod x86;
 #[cfg(test)]
 mod tests;
@@ -134,29 +129,30 @@ pub fn memrchr3_iter(
 /// ```
 #[inline]
 pub fn memchr(needle: u8, haystack: &[u8]) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memchr(n1, haystack)
-            }
-        } else if #[cfg(all(
-            feature = "libc",
-            not(target_arch = "wasm32"),
-            not(target_arch = "windows"),
-            not(target_env = "sgx"),
-        ))] {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                c::memchr(n1, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memchr(n1, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memchr(n1, haystack)
     }
+
+    #[cfg(all(
+        memchr_libc,
+        not(all(target_arch = "x86_64", memchr_runtime_simd))
+    ))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        c::memchr(n1, haystack)
+    }
+
+    #[cfg(all(
+        not(memchr_libc),
+        not(all(target_arch = "x86_64", memchr_runtime_simd))
+    ))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memchr(n1, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {
@@ -167,19 +163,18 @@ pub fn memchr(needle: u8, haystack: &[u8]) -> Option<usize> {
 /// Like `memchr`, but searches for two bytes instead of one.
 #[inline]
 pub fn memchr2(needle1: u8, needle2: u8, haystack: &[u8]) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memchr2(n1, n2, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memchr2(n1, n2, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memchr2(n1, n2, haystack)
     }
+
+    #[cfg(not(all(target_arch = "x86_64", memchr_runtime_simd)))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memchr2(n1, n2, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {
@@ -195,19 +190,18 @@ pub fn memchr3(
     needle3: u8,
     haystack: &[u8],
 ) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memchr3(n1, n2, n3, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memchr3(n1, n2, n3, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memchr3(n1, n2, n3, haystack)
     }
+
+    #[cfg(not(all(target_arch = "x86_64", memchr_runtime_simd)))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memchr3(n1, n2, n3, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {
@@ -237,30 +231,30 @@ pub fn memchr3(
 /// ```
 #[inline]
 pub fn memrchr(needle: u8, haystack: &[u8]) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memrchr(n1, haystack)
-            }
-        } else if #[cfg(all(
-            feature = "libc",
-            target_os = "linux",
-            not(target_arch = "wasm32"),
-            not(target_arch = "windows"),
-            not(target_env = "sgx"),
-        ))] {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                c::memrchr(n1, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memrchr(n1, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memrchr(n1, haystack)
     }
+
+    #[cfg(all(
+        all(memchr_libc, target_os = "linux"),
+        not(all(target_arch = "x86_64", memchr_runtime_simd))
+    ))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        c::memrchr(n1, haystack)
+    }
+
+    #[cfg(all(
+        not(all(memchr_libc, target_os = "linux")),
+        not(all(target_arch = "x86_64", memchr_runtime_simd))
+    ))]
+    #[inline(always)]
+    fn imp(n1: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memrchr(n1, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {
@@ -271,19 +265,18 @@ pub fn memrchr(needle: u8, haystack: &[u8]) -> Option<usize> {
 /// Like `memrchr`, but searches for two bytes instead of one.
 #[inline]
 pub fn memrchr2(needle1: u8, needle2: u8, haystack: &[u8]) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memrchr2(n1, n2, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memrchr2(n1, n2, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memrchr2(n1, n2, haystack)
     }
+
+    #[cfg(not(all(target_arch = "x86_64", memchr_runtime_simd)))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memrchr2(n1, n2, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {
@@ -299,19 +292,18 @@ pub fn memrchr3(
     needle3: u8,
     haystack: &[u8],
 ) -> Option<usize> {
-    cfg_if! {
-        if #[cfg(all(target_arch = "x86_64", memchr_runtime_simd, feature = "use_std"))] {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
-                x86::memrchr3(n1, n2, n3, haystack)
-            }
-        } else {
-            #[inline(always)]
-            fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
-                fallback::memrchr3(n1, n2, n3, haystack)
-            }
-        }
+    #[cfg(all(target_arch = "x86_64", memchr_runtime_simd))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
+        x86::memrchr3(n1, n2, n3, haystack)
     }
+
+    #[cfg(not(all(target_arch = "x86_64", memchr_runtime_simd)))]
+    #[inline(always)]
+    fn imp(n1: u8, n2: u8, n3: u8, haystack: &[u8]) -> Option<usize> {
+        fallback::memrchr3(n1, n2, n3, haystack)
+    }
+
     if haystack.is_empty() {
         None
     } else {

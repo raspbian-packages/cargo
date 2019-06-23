@@ -1,16 +1,16 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::io;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Display, Path, PathBuf};
 
-use termcolor::Color::Cyan;
 use fs2::{lock_contended_error, FileExt};
 #[allow(unused_imports)]
 use libc;
+use termcolor::Color::Cyan;
 
-use util::Config;
-use util::paths;
-use util::errors::{CargoError, CargoResult, CargoResultExt};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::paths;
+use crate::util::Config;
 
 pub struct FileLock {
     f: Option<File>,
@@ -146,7 +146,7 @@ impl Filesystem {
 
     /// Returns an adaptor that can be used to print the path of this
     /// filesystem.
-    pub fn display(&self) -> Display {
+    pub fn display(&self) -> Display<'_> {
         self.root.display()
     }
 
@@ -208,7 +208,8 @@ impl Filesystem {
         // If we want an exclusive lock then if we fail because of NotFound it's
         // likely because an intermediate directory didn't exist, so try to
         // create the directory and then continue.
-        let f = opts.open(&path)
+        let f = opts
+            .open(&path)
             .or_else(|e| {
                 if e.kind() == io::ErrorKind::NotFound && state == State::Exclusive {
                     fs::create_dir_all(path.parent().unwrap())?;
@@ -270,13 +271,13 @@ fn acquire(
     config: &Config,
     msg: &str,
     path: &Path,
-    try: &Fn() -> io::Result<()>,
-    block: &Fn() -> io::Result<()>,
+    r#try: &dyn Fn() -> io::Result<()>,
+    block: &dyn Fn() -> io::Result<()>,
 ) -> CargoResult<()> {
     // File locking on Unix is currently implemented via `flock`, which is known
     // to be broken on NFS. We could in theory just ignore errors that happen on
     // NFS, but apparently the failure mode [1] for `flock` on NFS is **blocking
-    // forever**, even if the nonblocking flag is passed!
+    // forever**, even if the "non-blocking" flag is passed!
     //
     // As a result, we just skip all file locks entirely on NFS mounts. That
     // should avoid calling any `flock` functions at all, and it wouldn't work
@@ -287,28 +288,22 @@ fn acquire(
         return Ok(());
     }
 
-    match try() {
+    match r#try() {
         Ok(()) => return Ok(()),
 
         // In addition to ignoring NFS which is commonly not working we also
         // just ignore locking on filesystems that look like they don't
         // implement file locking. We detect that here via the return value of
-        // locking (e.g. inspecting errno).
+        // locking (e.g., inspecting errno).
         #[cfg(unix)]
-        Err(ref e) if e.raw_os_error() == Some(libc::ENOTSUP) =>
-        {
-            return Ok(())
-        }
+        Err(ref e) if e.raw_os_error() == Some(libc::ENOTSUP) => return Ok(()),
 
         #[cfg(target_os = "linux")]
-        Err(ref e) if e.raw_os_error() == Some(libc::ENOSYS) =>
-        {
-            return Ok(())
-        }
+        Err(ref e) if e.raw_os_error() == Some(libc::ENOSYS) => return Ok(()),
 
         Err(e) => {
             if e.raw_os_error() != lock_contended_error().raw_os_error() {
-                let e = CargoError::from(e);
+                let e = failure::Error::from(e);
                 let cx = format!("failed to lock file: {}", path.display());
                 return Err(e.context(cx).into());
             }

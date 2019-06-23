@@ -5,7 +5,7 @@ find it useful if you want to contribute to Cargo or if you are
 interested in the inner workings of Cargo.
 
 The purpose of Cargo is to formalize a canonical Rust workflow, by automating
-the standard tasks associated with distributing software.  Cargo simplifies
+the standard tasks associated with distributing software. Cargo simplifies
 structuring a new project, adding dependencies, writing and running unit tests,
 and more.
 
@@ -58,7 +58,7 @@ the local hard drive.
 
 `Resolve` is the representation of a directed acyclic graph of package
 dependencies, which uses `PackageId`s for nodes. This is the data
-structure that is saved to the lock file. If there is no lockfile,
+structure that is saved to the lock file. If there is no lock file,
 Cargo constructs a resolve by finding a graph of packages which
 matches declared dependency specification according to semver.
 
@@ -114,22 +114,18 @@ and run with `rustup run` (e.g `rustup run nightly
 <path-to-cargo>/target/debug/cargo <args>..`) (or set the `RUSTC` env var to point
 to nightly rustc).
 
-Because the test suite has `#![deny(warnings)]` at times you might find it
-convenient to override this with `RUSTFLAGS`, for example
-`RUSTFLAGS="--cap-lints warn" cargo build`.
-
 ## Logging
 
 Cargo uses [`env_logger`](https://docs.rs/env_logger/*/env_logger/), so you can set
 `RUST_LOG` environment variable to get the logs. This is useful both for diagnosing
-bugs in stable Cargo and for local development. Cargo also has internal hierarchical 
-profiling infrastructure, which is activated via `CARGO_PROFILE` variable 
+bugs in stable Cargo and for local development. Cargo also has internal hierarchical
+profiling infrastructure, which is activated via `CARGO_PROFILE` variable
 
 ```
-# Outputs all logs with levels debug and higher  
+# Outputs all logs with levels debug and higher
 $ RUST_LOG=debug cargo generate-lockfile
 
-# Don't forget that you can filter by module as well 
+# Don't forget that you can filter by module as well
 $ RUST_LOG=cargo::core::resolver=trace cargo generate-lockfile
 
 # Output first three levels of profiling info

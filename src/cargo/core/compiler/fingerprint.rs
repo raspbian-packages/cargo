@@ -3,17 +3,19 @@ use std::fs;
 use std::hash::{self, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use filetime::FileTime;
-use serde::de::{self, Deserialize};
+use log::{debug, info};
+use serde::de;
 use serde::ser;
-use serde_json;
+use serde::{Deserialize, Serialize};
 
-use core::{Edition, Package};
-use util;
-use util::errors::{CargoResult, CargoResultExt};
-use util::paths;
-use util::{internal, profile, Dirty, Fresh, Freshness};
+use crate::core::{Edition, Package};
+use crate::util;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::paths;
+use crate::util::{internal, profile, Dirty, Fresh, Freshness};
 
 use super::custom_build::BuildDeps;
 use super::job::Work;
@@ -63,10 +65,11 @@ pub fn prepare_target<'a, 'cfg>(
     debug!("fingerprint at: {}", loc.display());
 
     let fingerprint = calculate(cx, unit)?;
-    let compare = compare_old_fingerprint(&loc, &*fingerprint);
+    let mtime_on_use = cx.bcx.config.cli_unstable().mtime_on_use;
+    let compare = compare_old_fingerprint(&loc, &*fingerprint, mtime_on_use);
     log_compare(unit, &compare);
 
-    // If our comparison failed (e.g. we're going to trigger a rebuild of this
+    // If our comparison failed (e.g., we're going to trigger a rebuild of this
     // crate), then we also ensure the source of the crate passes all
     // verification checks before we build it.
     //
@@ -87,6 +90,7 @@ pub fn prepare_target<'a, 'cfg>(
 
     let root = cx.files().out_dir(unit);
     let missing_outputs = {
+        let t = FileTime::from_system_time(SystemTime::now());
         if unit.mode.is_doc() {
             !root
                 .join(unit.target.crate_name())
@@ -97,8 +101,17 @@ pub fn prepare_target<'a, 'cfg>(
                 .outputs(unit)?
                 .iter()
                 .filter(|output| output.flavor != FileFlavor::DebugInfo)
-                .find(|output| !output.path.exists())
-            {
+                .find(|output| {
+                    if output.path.exists() {
+                        if mtime_on_use {
+                            // update the mtime so other cleaners know we used it
+                            let _ = filetime::set_file_times(&output.path, t, t);
+                        }
+                        false
+                    } else {
+                        true
+                    }
+                }) {
                 None => false,
                 Some(output) => {
                     info!("missing output path {:?}", output.path);
@@ -128,10 +141,14 @@ pub fn prepare_target<'a, 'cfg>(
 }
 
 /// A compilation unit dependency has a fingerprint that is comprised of:
-/// * its package id
+/// * its package ID
 /// * its extern crate name
 /// * its calculated fingerprint for the dependency
-type DepFingerprint = (String, String, Arc<Fingerprint>);
+struct DepFingerprint {
+    pkg_id: String,
+    name: String,
+    fingerprint: Arc<Fingerprint>,
+}
 
 /// A fingerprint can be considered to be a "short string" representing the
 /// state of a world for a package.
@@ -161,10 +178,6 @@ pub struct Fingerprint {
     target: u64,
     profile: u64,
     path: u64,
-    #[serde(
-        serialize_with = "serialize_deps",
-        deserialize_with = "deserialize_deps"
-    )]
     deps: Vec<DepFingerprint>,
     local: Vec<LocalFingerprint>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -173,39 +186,31 @@ pub struct Fingerprint {
     edition: Edition,
 }
 
-fn serialize_deps<S>(deps: &[DepFingerprint], ser: S) -> Result<S::Ok, S::Error>
-where
-    S: ser::Serializer,
-{
-    ser.collect_seq(deps.iter().map(|&(ref a, ref b, ref c)| (a, b, c.hash())))
+impl Serialize for DepFingerprint {
+    fn serialize<S>(&self, ser: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        (&self.pkg_id, &self.name, &self.fingerprint.hash()).serialize(ser)
+    }
 }
 
-fn deserialize_deps<'de, D>(d: D) -> Result<Vec<DepFingerprint>, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let decoded = <Vec<(String, String, u64)>>::deserialize(d)?;
-    Ok(decoded
-        .into_iter()
-        .map(|(pkg_id, name, hash)| {
-            (
-                pkg_id,
-                name,
-                Arc::new(Fingerprint {
-                    rustc: 0,
-                    target: 0,
-                    profile: 0,
-                    path: 0,
-                    local: vec![LocalFingerprint::Precalculated(String::new())],
-                    features: String::new(),
-                    deps: Vec::new(),
-                    memoized_hash: Mutex::new(Some(hash)),
-                    edition: Edition::Edition2015,
-                    rustflags: Vec::new(),
-                }),
-            )
+impl<'de> Deserialize<'de> for DepFingerprint {
+    fn deserialize<D>(d: D) -> Result<DepFingerprint, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        let (pkg_id, name, hash) = <(String, String, u64)>::deserialize(d)?;
+        Ok(DepFingerprint {
+            pkg_id,
+            name,
+            fingerprint: Arc::new(Fingerprint {
+                local: vec![LocalFingerprint::Precalculated(String::new())],
+                memoized_hash: Mutex::new(Some(hash)),
+                ..Fingerprint::new()
+            }),
         })
-        .collect())
+    }
 }
 
 #[derive(Serialize, Deserialize, Hash)]
@@ -227,6 +232,21 @@ impl LocalFingerprint {
 struct MtimeSlot(Mutex<Option<FileTime>>);
 
 impl Fingerprint {
+    fn new() -> Fingerprint {
+        Fingerprint {
+            rustc: 0,
+            target: 0,
+            profile: 0,
+            path: 0,
+            features: String::new(),
+            deps: Vec::new(),
+            local: Vec::new(),
+            memoized_hash: Mutex::new(None),
+            edition: Edition::Edition2015,
+            rustflags: Vec::new(),
+        }
+    }
+
     fn update_local(&self, root: &Path) -> CargoResult<()> {
         for local in self.local.iter() {
             match *local {
@@ -254,32 +274,32 @@ impl Fingerprint {
 
     fn compare(&self, old: &Fingerprint) -> CargoResult<()> {
         if self.rustc != old.rustc {
-            bail!("rust compiler has changed")
+            failure::bail!("rust compiler has changed")
         }
         if self.features != old.features {
-            bail!(
+            failure::bail!(
                 "features have changed: {} != {}",
                 self.features,
                 old.features
             )
         }
         if self.target != old.target {
-            bail!("target configuration has changed")
+            failure::bail!("target configuration has changed")
         }
         if self.path != old.path {
-            bail!("path to the compiler has changed")
+            failure::bail!("path to the compiler has changed")
         }
         if self.profile != old.profile {
-            bail!("profile configuration has changed")
+            failure::bail!("profile configuration has changed")
         }
         if self.rustflags != old.rustflags {
-            bail!("RUSTFLAGS has changed")
+            failure::bail!("RUSTFLAGS has changed")
         }
         if self.local.len() != old.local.len() {
-            bail!("local lens changed");
+            failure::bail!("local lens changed");
         }
         if self.edition != old.edition {
-            bail!("edition changed")
+            failure::bail!("edition changed")
         }
         for (new, old) in self.local.iter().zip(&old.local) {
             match (new, old) {
@@ -288,7 +308,7 @@ impl Fingerprint {
                     &LocalFingerprint::Precalculated(ref b),
                 ) => {
                     if a != b {
-                        bail!("precalculated components have changed: {} != {}", a, b)
+                        failure::bail!("precalculated components have changed: {} != {}", a, b)
                     }
                 }
                 (
@@ -305,7 +325,7 @@ impl Fingerprint {
                     };
 
                     if should_rebuild {
-                        bail!(
+                        failure::bail!(
                             "mtime based components have changed: previously {:?} now {:?}, \
                              paths are {:?} and {:?}",
                             *previously_built_mtime,
@@ -320,10 +340,10 @@ impl Fingerprint {
                     &LocalFingerprint::EnvBased(ref bkey, ref bvalue),
                 ) => {
                     if *akey != *bkey {
-                        bail!("env vars changed: {} != {}", akey, bkey);
+                        failure::bail!("env vars changed: {} != {}", akey, bkey);
                     }
                     if *avalue != *bvalue {
-                        bail!(
+                        failure::bail!(
                             "env var `{}` changed: previously {:?} now {:?}",
                             akey,
                             bvalue,
@@ -331,16 +351,16 @@ impl Fingerprint {
                         )
                     }
                 }
-                _ => bail!("local fingerprint type has changed"),
+                _ => failure::bail!("local fingerprint type has changed"),
             }
         }
 
         if self.deps.len() != old.deps.len() {
-            bail!("number of dependencies has changed")
+            failure::bail!("number of dependencies has changed")
         }
         for (a, b) in self.deps.iter().zip(old.deps.iter()) {
-            if a.1 != b.1 || a.2.hash() != b.2.hash() {
-                bail!("new ({}) != old ({})", a.0, b.0)
+            if a.name != b.name || a.fingerprint.hash() != b.fingerprint.hash() {
+                failure::bail!("new ({}) != old ({})", a.pkg_id, b.pkg_id)
             }
         }
         Ok(())
@@ -367,7 +387,12 @@ impl hash::Hash for Fingerprint {
             .hash(h);
 
         h.write_usize(deps.len());
-        for &(ref pkg_id, ref name, ref fingerprint) in deps {
+        for DepFingerprint {
+            pkg_id,
+            name,
+            fingerprint,
+        } in deps
+        {
             pkg_id.hash(h);
             name.hash(h);
             // use memoized dep hashes to avoid exponential blowup
@@ -415,7 +440,7 @@ impl<'de> de::Deserialize<'de> for MtimeSlot {
 /// * Any dependency changes
 /// * The compiler changes
 /// * The set of features a package is built with changes
-/// * The profile a target is compiled with changes (e.g. opt-level changes)
+/// * The profile a target is compiled with changes (e.g., opt-level changes)
 ///
 /// Information like file modification time is only calculated for path
 /// dependencies and is calculated in `calculate_target_fresh`.
@@ -442,7 +467,11 @@ fn calculate<'a, 'cfg>(
         .map(|dep| {
             calculate(cx, dep).and_then(|fingerprint| {
                 let name = cx.bcx.extern_crate_name(unit, dep)?;
-                Ok((dep.pkg.package_id().to_string(), name, fingerprint))
+                Ok(DepFingerprint {
+                    pkg_id: dep.pkg.package_id().to_string(),
+                    name,
+                    fingerprint,
+                })
             })
         })
         .collect::<CargoResult<Vec<_>>>()?;
@@ -457,18 +486,13 @@ fn calculate<'a, 'cfg>(
         LocalFingerprint::Precalculated(fingerprint)
     };
     let mut deps = deps;
-    deps.sort_by(|&(ref a, _, _), &(ref b, _, _)| a.cmp(b));
+    deps.sort_by(|a, b| a.pkg_id.cmp(&b.pkg_id));
     let extra_flags = if unit.mode.is_doc() {
         bcx.rustdocflags_args(unit)?
     } else {
         bcx.rustflags_args(unit)?
     };
-    let profile_hash = util::hash_u64(&(
-        &unit.profile,
-        unit.mode,
-        bcx.extra_args_for(unit),
-        cx.incremental_args(unit)?,
-    ));
+    let profile_hash = util::hash_u64(&(&unit.profile, unit.mode, bcx.extra_args_for(unit)));
     let fingerprint = Arc::new(Fingerprint {
         rustc: util::hash_u64(&bcx.rustc.verbose_version),
         target: util::hash_u64(&unit.target),
@@ -491,7 +515,7 @@ fn calculate<'a, 'cfg>(
 // git/registry source, then the mtime of files may fluctuate, but they won't
 // change so long as the source itself remains constant (which is the
 // responsibility of the source)
-fn use_dep_info(unit: &Unit) -> bool {
+fn use_dep_info(unit: &Unit<'_>) -> bool {
     let path = unit.pkg.summary().source_id().is_path();
     !unit.mode.is_doc() && path
 }
@@ -525,18 +549,12 @@ pub fn prepare_build_cmd<'a, 'cfg>(
 
     let (local, output_path) = build_script_local_fingerprints(cx, unit)?;
     let mut fingerprint = Fingerprint {
-        rustc: 0,
-        target: 0,
-        profile: 0,
-        path: 0,
-        features: String::new(),
-        deps: Vec::new(),
         local,
-        memoized_hash: Mutex::new(None),
-        edition: Edition::Edition2015,
-        rustflags: Vec::new(),
+        rustc: util::hash_u64(&cx.bcx.rustc.verbose_version),
+        ..Fingerprint::new()
     };
-    let compare = compare_old_fingerprint(&loc, &fingerprint);
+    let mtime_on_use = cx.bcx.config.cli_unstable().mtime_on_use;
+    let compare = compare_old_fingerprint(&loc, &fingerprint, mtime_on_use);
     log_compare(unit, &compare);
 
     // When we write out the fingerprint, we may want to actually change the
@@ -638,6 +656,10 @@ fn local_fingerprints_deps(
 }
 
 fn write_fingerprint(loc: &Path, fingerprint: &Fingerprint) -> CargoResult<()> {
+    debug_assert_ne!(fingerprint.rustc, 0);
+    // fingerprint::new().rustc == 0, make sure it doesn't make it to the file system.
+    // This is mostly so outside tools can reliably find out what rust version this file is for,
+    // as we can use the full hash.
     let hash = fingerprint.hash();
     debug!("write fingerprint: {}", loc.display());
     paths::write(loc, util::to_hex(hash).as_bytes())?;
@@ -665,8 +687,19 @@ pub fn dep_info_loc<'a, 'cfg>(cx: &mut Context<'a, 'cfg>, unit: &Unit<'a>) -> Pa
         .join(&format!("dep-{}", filename(cx, unit)))
 }
 
-fn compare_old_fingerprint(loc: &Path, new_fingerprint: &Fingerprint) -> CargoResult<()> {
+fn compare_old_fingerprint(
+    loc: &Path,
+    new_fingerprint: &Fingerprint,
+    mtime_on_use: bool,
+) -> CargoResult<()> {
     let old_fingerprint_short = paths::read(loc)?;
+
+    if mtime_on_use {
+        // update the mtime so other cleaners know we used it
+        let t = FileTime::from_system_time(SystemTime::now());
+        filetime::set_file_times(loc, t, t)?;
+    }
+
     let new_hash = new_fingerprint.hash();
 
     if util::to_hex(new_hash) == old_fingerprint_short {
@@ -679,7 +712,7 @@ fn compare_old_fingerprint(loc: &Path, new_fingerprint: &Fingerprint) -> CargoRe
     new_fingerprint.compare(&old_fingerprint)
 }
 
-fn log_compare(unit: &Unit, compare: &CargoResult<()>) {
+fn log_compare(unit: &Unit<'_>, compare: &CargoResult<()>) {
     let ce = match *compare {
         Ok(..) => return,
         Err(ref e) => e,
@@ -717,7 +750,7 @@ fn dep_info_mtime_if_fresh(pkg: &Package, dep_info: &Path) -> CargoResult<Option
     }
 }
 
-fn pkg_fingerprint(bcx: &BuildContext, pkg: &Package) -> CargoResult<String> {
+fn pkg_fingerprint(bcx: &BuildContext<'_, '_>, pkg: &Package) -> CargoResult<String> {
     let source_id = pkg.package_id().source_id();
     let sources = bcx.packages.sources();
 
@@ -747,23 +780,25 @@ where
             }
         };
 
-        // Note that equal mtimes are considered "stale". For filesystems with
-        // not much timestamp precision like 1s this is a conservative approximation
+        // TODO: fix #5918.
+        // Note that equal mtimes should be considered "stale". For filesystems with
+        // not much timestamp precision like 1s this is would be a conservative approximation
         // to handle the case where a file is modified within the same second after
-        // a build finishes. We want to make sure that incremental rebuilds pick that up!
+        // a build starts. We want to make sure that incremental rebuilds pick that up!
         //
         // For filesystems with nanosecond precision it's been seen in the wild that
         // its "nanosecond precision" isn't really nanosecond-accurate. It turns out that
         // kernels may cache the current time so files created at different times actually
         // list the same nanosecond precision. Some digging on #5919 picked up that the
         // kernel caches the current time between timer ticks, which could mean that if
-        // a file is updated at most 10ms after a build finishes then Cargo may not
+        // a file is updated at most 10ms after a build starts then Cargo may not
         // pick up the build changes.
         //
-        // All in all, the equality check here is a conservative assumption that,
+        // All in all, an equality check here would be a conservative assumption that,
         // if equal, files were changed just after a previous build finished.
-        // It's hoped this doesn't cause too many issues in practice!
-        if mtime2 >= mtime {
+        // Unfortunately this became problematic when (in #6484) cargo switch to more accurately
+        // measuring the start time of builds.
+        if mtime2 > mtime {
             info!("stale: {} -- {} vs {}", path.display(), mtime2, mtime);
             true
         } else {

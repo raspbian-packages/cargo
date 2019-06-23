@@ -9,7 +9,7 @@ use failure::Fail;
 use jobserver::Client;
 use shell_escape::escape;
 
-use util::{process_error, CargoResult, CargoResultExt, read2};
+use crate::util::{process_error, read2, CargoResult, CargoResultExt};
 
 /// A builder object for an external process, similar to `std::process::Command`.
 #[derive(Clone, Debug)]
@@ -20,18 +20,35 @@ pub struct ProcessBuilder {
     args: Vec<OsString>,
     /// Any environment variables that should be set for the program.
     env: HashMap<String, Option<OsString>>,
-    /// Which directory to run the program from.
+    /// The directory to run the program from.
     cwd: Option<OsString>,
     /// The `make` jobserver. See the [jobserver crate][jobserver_docs] for
     /// more information.
     ///
     /// [jobserver_docs]: https://docs.rs/jobserver/0.1.6/jobserver/
     jobserver: Option<Client>,
+    /// `true` to include environment variable in display.
+    display_env_vars: bool,
 }
 
 impl fmt::Display for ProcessBuilder {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "`{}", self.program.to_string_lossy())?;
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "`")?;
+
+        if self.display_env_vars {
+            for (key, val) in self.env.iter() {
+                if let Some(val) = val {
+                    let val = escape(val.to_string_lossy());
+                    if cfg!(windows) {
+                        write!(f, "set {}={}&& ", key, val)?;
+                    } else {
+                        write!(f, "{}={} ", key, val)?;
+                    }
+                }
+            }
+        }
+
+        write!(f, "{}", self.program.to_string_lossy())?;
 
         for arg in &self.args {
             write!(f, " {}", escape(arg.to_string_lossy()))?;
@@ -42,69 +59,69 @@ impl fmt::Display for ProcessBuilder {
 }
 
 impl ProcessBuilder {
-    /// (chainable) Set the executable for the process.
+    /// (chainable) Sets the executable for the process.
     pub fn program<T: AsRef<OsStr>>(&mut self, program: T) -> &mut ProcessBuilder {
         self.program = program.as_ref().to_os_string();
         self
     }
 
-    /// (chainable) Add an arg to the args list.
+    /// (chainable) Adds `arg` to the args list.
     pub fn arg<T: AsRef<OsStr>>(&mut self, arg: T) -> &mut ProcessBuilder {
         self.args.push(arg.as_ref().to_os_string());
         self
     }
 
-    /// (chainable) Add many args to the args list.
-    pub fn args<T: AsRef<OsStr>>(&mut self, arguments: &[T]) -> &mut ProcessBuilder {
+    /// (chainable) Adds multiple `args` to the args list.
+    pub fn args<T: AsRef<OsStr>>(&mut self, args: &[T]) -> &mut ProcessBuilder {
         self.args
-            .extend(arguments.iter().map(|t| t.as_ref().to_os_string()));
+            .extend(args.iter().map(|t| t.as_ref().to_os_string()));
         self
     }
 
-    /// (chainable) Replace args with new args list
-    pub fn args_replace<T: AsRef<OsStr>>(&mut self, arguments: &[T]) -> &mut ProcessBuilder {
-        self.args = arguments
+    /// (chainable) Replaces the args list with the given `args`.
+    pub fn args_replace<T: AsRef<OsStr>>(&mut self, args: &[T]) -> &mut ProcessBuilder {
+        self.args = args
             .iter()
             .map(|t| t.as_ref().to_os_string())
             .collect();
         self
     }
 
-    /// (chainable) Set the current working directory of the process
+    /// (chainable) Sets the current working directory of the process.
     pub fn cwd<T: AsRef<OsStr>>(&mut self, path: T) -> &mut ProcessBuilder {
         self.cwd = Some(path.as_ref().to_os_string());
         self
     }
 
-    /// (chainable) Set an environment variable for the process.
+    /// (chainable) Sets an environment variable for the process.
     pub fn env<T: AsRef<OsStr>>(&mut self, key: &str, val: T) -> &mut ProcessBuilder {
         self.env
             .insert(key.to_string(), Some(val.as_ref().to_os_string()));
         self
     }
 
-    /// (chainable) Unset an environment variable for the process.
+    /// (chainable) Unsets an environment variable for the process.
     pub fn env_remove(&mut self, key: &str) -> &mut ProcessBuilder {
         self.env.insert(key.to_string(), None);
         self
     }
 
-    /// Get the executable name.
+    /// Gets the executable name.
     pub fn get_program(&self) -> &OsString {
         &self.program
     }
 
-    /// Get the program arguments
+    /// Gets the program arguments.
     pub fn get_args(&self) -> &[OsString] {
         &self.args
     }
 
-    /// Get the current working directory for the process
+    /// Gets the current working directory for the process.
     pub fn get_cwd(&self) -> Option<&Path> {
         self.cwd.as_ref().map(Path::new)
     }
 
-    /// Get an environment variable as the process will see it (will inherit from environment
+    /// Gets an environment variable as the process will see it (will inherit from environment
     /// unless explicitally unset).
     pub fn get_env(&self, var: &str) -> Option<OsString> {
         self.env
@@ -114,13 +131,13 @@ impl ProcessBuilder {
             .and_then(|s| s)
     }
 
-    /// Get all environment variables explicitly set or unset for the process (not inherited
+    /// Gets all environment variables explicitly set or unset for the process (not inherited
     /// vars).
     pub fn get_envs(&self) -> &HashMap<String, Option<OsString>> {
         &self.env
     }
 
-    /// Set the `make` jobserver. See the [jobserver crate][jobserver_docs] for
+    /// Sets the `make` jobserver. See the [jobserver crate][jobserver_docs] for
     /// more information.
     ///
     /// [jobserver_docs]: https://docs.rs/jobserver/0.1.6/jobserver/
@@ -129,15 +146,17 @@ impl ProcessBuilder {
         self
     }
 
-    /// Run the process, waiting for completion, and mapping non-success exit codes to an error.
+    /// Enables environment variable display.
+    pub fn display_env_vars(&mut self) -> &mut Self {
+        self.display_env_vars = true;
+        self
+    }
+
+    /// Runs the process, waiting for completion, and mapping non-success exit codes to an error.
     pub fn exec(&self) -> CargoResult<()> {
         let mut command = self.build_command();
         let exit = command.status().chain_err(|| {
-            process_error(
-                &format!("could not execute process {}", self),
-                None,
-                None,
-            )
+            process_error(&format!("could not execute process {}", self), None, None)
         })?;
 
         if exit.success() {
@@ -147,22 +166,23 @@ impl ProcessBuilder {
                 &format!("process didn't exit successfully: {}", self),
                 Some(exit),
                 None,
-            ).into())
+            )
+            .into())
         }
     }
 
     /// Replaces the current process with the target process.
     ///
-    /// On Unix, this executes the process using the unix syscall `execvp`, which will block
+    /// On Unix, this executes the process using the Unix syscall `execvp`, which will block
     /// this process, and will only return if there is an error.
     ///
     /// On Windows this isn't technically possible. Instead we emulate it to the best of our
-    /// ability. One aspect we fix here is that we specify a handler for the ctrl-c handler.
-    /// In doing so (and by effectively ignoring it) we should emulate proxying ctrl-c
+    /// ability. One aspect we fix here is that we specify a handler for the Ctrl-C handler.
+    /// In doing so (and by effectively ignoring it) we should emulate proxying Ctrl-C
     /// handling to the application at hand, which will either terminate or handle it itself.
-    /// According to microsoft's documentation at:
-    /// https://docs.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals
-    /// the ctrl-c signal is sent to all processes attached to a terminal, which should
+    /// According to Microsoft's documentation at
+    /// <https://docs.microsoft.com/en-us/windows/console/ctrl-c-and-ctrl-break-signals>.
+    /// the Ctrl-C signal is sent to all processes attached to a terminal, which should
     /// include our child process. If the child terminates then we'll reap them in Cargo
     /// pretty quickly, and if the child handles the signal then we won't terminate
     /// (and we shouldn't!) until the process itself later exits.
@@ -170,16 +190,12 @@ impl ProcessBuilder {
         imp::exec_replace(self)
     }
 
-    /// Execute the process, returning the stdio output, or an error if non-zero exit status.
+    /// Executes the process, returning the stdio output, or an error if non-zero exit status.
     pub fn exec_with_output(&self) -> CargoResult<Output> {
         let mut command = self.build_command();
 
         let output = command.output().chain_err(|| {
-            process_error(
-                &format!("could not execute process {}", self),
-                None,
-                None,
-            )
+            process_error(&format!("could not execute process {}", self), None, None)
         })?;
 
         if output.status.success() {
@@ -189,11 +205,12 @@ impl ProcessBuilder {
                 &format!("process didn't exit successfully: {}", self),
                 Some(output.status),
                 Some(&output),
-            ).into())
+            )
+            .into())
         }
     }
 
-    /// Execute a command, passing each line of stdout and stderr to the supplied callbacks, which
+    /// Executes a command, passing each line of stdout and stderr to the supplied callbacks, which
     /// can mutate the string data.
     ///
     /// If any invocations of these function return an error, it will be propagated.
@@ -201,8 +218,8 @@ impl ProcessBuilder {
     /// Optionally, output can be passed to errors using `print_output`
     pub fn exec_with_streaming(
         &self,
-        on_stdout_line: &mut FnMut(&str) -> CargoResult<()>,
-        on_stderr_line: &mut FnMut(&str) -> CargoResult<()>,
+        on_stdout_line: &mut dyn FnMut(&str) -> CargoResult<()>,
+        on_stderr_line: &mut dyn FnMut(&str) -> CargoResult<()>,
         capture_output: bool,
     ) -> CargoResult<Output> {
         let mut stdout = Vec::new();
@@ -227,7 +244,8 @@ impl ProcessBuilder {
                         None => return,
                     }
                 };
-                { // scope for new_lines
+                {
+                    // scope for new_lines
                     let new_lines = if capture_output {
                         let dst = if is_out { &mut stdout } else { &mut stderr };
                         let start = dst.len();
@@ -257,13 +275,7 @@ impl ProcessBuilder {
             })?;
             child.wait()
         })()
-            .chain_err(|| {
-            process_error(
-                &format!("could not execute process {}", self),
-                None,
-                None,
-            )
-        })?;
+        .chain_err(|| process_error(&format!("could not execute process {}", self), None, None))?;
         let output = Output {
             stdout,
             stderr,
@@ -292,7 +304,7 @@ impl ProcessBuilder {
         Ok(output)
     }
 
-    /// Converts ProcessBuilder into a `std::process::Command`, and handles the jobserver if
+    /// Converts `ProcessBuilder` into a `std::process::Command`, and handles the jobserver, if
     /// present.
     pub fn build_command(&self) -> Command {
         let mut command = Command::new(&self.program);
@@ -327,19 +339,20 @@ pub fn process<T: AsRef<OsStr>>(cmd: T) -> ProcessBuilder {
         cwd: None,
         env: HashMap::new(),
         jobserver: None,
+        display_env_vars: false,
     }
 }
 
 #[cfg(unix)]
 mod imp {
-    use CargoResult;
+    use crate::util::{process_error, ProcessBuilder};
+    use crate::CargoResult;
     use std::os::unix::process::CommandExt;
-    use util::{process_error, ProcessBuilder};
 
     pub fn exec_replace(process_builder: &ProcessBuilder) -> CargoResult<()> {
         let mut command = process_builder.build_command();
         let error = command.exec();
-        Err(::util::CargoError::from(error)
+        Err(failure::Error::from(error)
             .context(process_error(
                 &format!("could not execute process {}", process_builder),
                 None,
@@ -351,29 +364,24 @@ mod imp {
 
 #[cfg(windows)]
 mod imp {
-    extern crate winapi;
-
-    use CargoResult;
-    use util::{process_error, ProcessBuilder};
-    use self::winapi::shared::minwindef::{BOOL, DWORD, FALSE, TRUE};
-    use self::winapi::um::consoleapi::SetConsoleCtrlHandler;
+    use crate::util::{process_error, ProcessBuilder};
+    use crate::CargoResult;
+    use winapi::shared::minwindef::{BOOL, DWORD, FALSE, TRUE};
+    use winapi::um::consoleapi::SetConsoleCtrlHandler;
 
     unsafe extern "system" fn ctrlc_handler(_: DWORD) -> BOOL {
-        // Do nothing. Let the child process handle it.
+        // Do nothing; let the child process handle it.
         TRUE
     }
 
     pub fn exec_replace(process_builder: &ProcessBuilder) -> CargoResult<()> {
         unsafe {
             if SetConsoleCtrlHandler(Some(ctrlc_handler), TRUE) == FALSE {
-                return Err(process_error(
-                    "Could not set Ctrl-C handler.",
-                    None,
-                    None).into());
+                return Err(process_error("Could not set Ctrl-C handler.", None, None).into());
             }
         }
 
-        // Just exec the process as normal.
+        // Just execute the process as normal.
         process_builder.exec()
     }
 }

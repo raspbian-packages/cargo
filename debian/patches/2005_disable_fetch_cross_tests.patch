@@ -17,7 +17,7 @@ Last-Update: 2018-08-05
      if cross_compile::disabled() {
          return;
      }
-@@ -58,8 +58,8 @@
+@@ -59,8 +59,8 @@
          .run();
  }
  

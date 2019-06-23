@@ -2,12 +2,12 @@ use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::path::Path;
 
-use core::PackageId;
+use crate::core::PackageId;
+use crate::sources::registry::{MaybeLock, RegistryConfig, RegistryData};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::paths;
+use crate::util::{Config, FileLock, Filesystem, Sha256};
 use hex;
-use sources::registry::{MaybeLock, RegistryConfig, RegistryData};
-use util::errors::{CargoResult, CargoResultExt};
-use util::paths;
-use util::{Config, FileLock, Filesystem, Sha256};
 
 pub struct LocalRegistry<'cfg> {
     index_path: Filesystem,
@@ -40,7 +40,7 @@ impl<'cfg> RegistryData for LocalRegistry<'cfg> {
         &self,
         root: &Path,
         path: &Path,
-        data: &mut FnMut(&[u8]) -> CargoResult<()>,
+        data: &mut dyn FnMut(&[u8]) -> CargoResult<()>,
     ) -> CargoResult<()> {
         data(&paths::read_bytes(&root.join(path))?)
     }
@@ -57,11 +57,11 @@ impl<'cfg> RegistryData for LocalRegistry<'cfg> {
         // these directories exist.
         let root = self.root.clone().into_path_unlocked();
         if !root.is_dir() {
-            bail!("local registry path is not a directory: {}", root.display())
+            failure::bail!("local registry path is not a directory: {}", root.display())
         }
         let index_path = self.index_path.clone().into_path_unlocked();
         if !index_path.is_dir() {
-            bail!(
+            failure::bail!(
                 "local registry index path is not a directory: {}",
                 index_path.display()
             )
@@ -96,7 +96,7 @@ impl<'cfg> RegistryData for LocalRegistry<'cfg> {
             state.update(&buf[..n]);
         }
         if hex::encode(state.finish()) != checksum {
-            bail!("failed to verify the checksum of `{}`", pkg)
+            failure::bail!("failed to verify the checksum of `{}`", pkg)
         }
 
         crate_file.seek(SeekFrom::Start(0))?;

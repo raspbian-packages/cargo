@@ -1,9 +1,9 @@
 use std::fs::{self, File};
 use std::io::prelude::*;
 
-use support::paths::{self, CargoPathExt};
-use support::registry::Package;
-use support::{basic_manifest, project};
+use crate::support::paths::{self, CargoPathExt};
+use crate::support::registry::{registry_path, Package};
+use crate::support::{basic_manifest, project};
 
 fn setup() {
     let root = paths::root();
@@ -40,10 +40,12 @@ fn simple() {
             [dependencies]
             bar = "0.0.1"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "extern crate bar; pub fn foo() { bar::bar(); }",
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -53,9 +55,49 @@ fn simple() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
     p.cargo("build").with_stderr("[FINISHED] [..]").run();
     p.cargo("test").run();
+}
+
+#[test]
+fn depend_on_yanked() {
+    setup();
+    Package::new("bar", "0.0.1").local(true).publish();
+
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [project]
+            name = "foo"
+            version = "0.0.1"
+            authors = []
+
+            [dependencies]
+            bar = "0.0.1"
+        "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    // Run cargo to create lock file.
+    p.cargo("check").run();
+
+    registry_path().join("index").join("3").rm_rf();
+    Package::new("bar", "0.0.1")
+        .local(true)
+        .yanked(true)
+        .publish();
+
+    p.cargo("check")
+        .with_stderr(
+            "\
+[FINISHED] [..]
+",
+        )
+        .run();
 }
 
 #[test]
@@ -79,10 +121,12 @@ fn multiple_versions() {
             [dependencies]
             bar = "*"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "extern crate bar; pub fn foo() { bar::bar(); }",
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -92,7 +136,8 @@ fn multiple_versions() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
 
     Package::new("bar", "0.2.0")
         .local(true)
@@ -129,7 +174,8 @@ fn multiple_names() {
             bar = "*"
             baz = "*"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             r#"
             extern crate bar;
@@ -139,7 +185,8 @@ fn multiple_names() {
                 baz::baz();
             }
         "#,
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -151,7 +198,8 @@ fn multiple_names() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -180,7 +228,8 @@ fn interdependent() {
             bar = "*"
             baz = "*"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             r#"
             extern crate bar;
@@ -190,7 +239,8 @@ fn interdependent() {
                 baz::baz();
             }
         "#,
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -202,7 +252,8 @@ fn interdependent() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -226,7 +277,8 @@ fn path_dep_rewritten() {
                 [dependencies]
                 bar = { path = "bar", version = "*" }
             "#,
-        ).file("src/lib.rs", "extern crate bar; pub fn baz() {}")
+        )
+        .file("src/lib.rs", "extern crate bar; pub fn baz() {}")
         .file("bar/Cargo.toml", &basic_manifest("bar", "0.0.1"))
         .file("bar/src/lib.rs", "pub fn bar() {}")
         .publish();
@@ -244,7 +296,8 @@ fn path_dep_rewritten() {
             bar = "*"
             baz = "*"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             r#"
             extern crate bar;
@@ -254,7 +307,8 @@ fn path_dep_rewritten() {
                 baz::baz();
             }
         "#,
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -266,7 +320,8 @@ fn path_dep_rewritten() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -284,7 +339,8 @@ fn invalid_dir_bad() {
             [dependencies]
             bar = "*"
         "#,
-        ).file("src/lib.rs", "")
+        )
+        .file("src/lib.rs", "")
         .file(
             ".cargo/config",
             r#"
@@ -295,7 +351,8 @@ fn invalid_dir_bad() {
             [source.my-awesome-local-directory]
             local-registry = '/path/to/nowhere'
         "#,
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_status(101)
@@ -312,7 +369,8 @@ Caused by:
 Caused by:
   local registry path is not a directory: [..]path[..]to[..]nowhere
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -337,7 +395,8 @@ fn different_directory_replacing_the_registry_is_bad() {
             [dependencies]
             bar = "*"
         "#,
-        ).file("src/lib.rs", "")
+        )
+        .file("src/lib.rs", "")
         .build();
 
     // Generate a lock file against the crates.io registry
@@ -363,13 +422,14 @@ fn different_directory_replacing_the_registry_is_bad() {
 this could be indicative of a few possible errors:
 
     * the lock file is corrupt
-    * a replacement source in use (e.g. a mirror) returned a different checksum
+    * a replacement source in use (e.g., a mirror) returned a different checksum
     * the source itself may be corrupt in one way or another
 
 unable to verify that `bar v0.0.1` is the same as when the lockfile was generated
 
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -403,10 +463,12 @@ fn crates_io_registry_url_is_optional() {
             [dependencies]
             bar = "0.0.1"
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "extern crate bar; pub fn foo() { bar::bar(); }",
-        ).build();
+        )
+        .build();
 
     p.cargo("build")
         .with_stderr(
@@ -416,7 +478,8 @@ fn crates_io_registry_url_is_optional() {
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] [..]
 ",
-        ).run();
+        )
+        .run();
     p.cargo("build").with_stderr("[FINISHED] [..]").run();
     p.cargo("test").run();
 }

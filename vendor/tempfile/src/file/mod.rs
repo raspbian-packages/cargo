@@ -310,6 +310,56 @@ impl TempPath {
             }),
         }
     }
+
+    /// Keep the temporary file from being deleted. This function will turn the
+    /// temporary file into a non-temporary file without moving it.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// On some platforms (e.g., Windows), we need to mark the file as
+    /// non-temporary. This operation could fail.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::io::{self, Write};
+    /// # extern crate tempfile;
+    /// use tempfile::NamedTempFile;
+    ///
+    /// # fn main() {
+    /// #     if let Err(_) = run() {
+    /// #         ::std::process::exit(1);
+    /// #     }
+    /// # }
+    /// # fn run() -> Result<(), io::Error> {
+    /// let mut file = NamedTempFile::new()?;
+    /// writeln!(file, "Brian was here. Briefly.")?;
+    ///
+    /// let path = file.into_temp_path();
+    /// let path = path.keep()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`PathPersistError`]: struct.PathPersistError.html
+    pub fn keep(mut self) -> Result<PathBuf, PathPersistError> {
+        match imp::keep(&self.path) {
+            Ok(_) => {
+                // Don't drop `self`. We don't want to try deleting the old
+                // temporary file path. (It'll fail, but the failure is never
+                // seen.)
+                let mut path = PathBuf::new();
+                mem::swap(&mut self.path, &mut path);
+                mem::forget(self);
+                Ok(path)
+            }
+            Err(e) => Err(PathPersistError {
+                error: e,
+                path: self,
+            }),
+        }
+    }
 }
 
 impl fmt::Debug for TempPath {
@@ -674,6 +724,48 @@ impl NamedTempFile {
         }
     }
 
+    /// Keep the temporary file from being deleted. This function will turn the
+    /// temporary file into a non-temporary file without moving it.
+    ///
+    ///
+    /// # Errors
+    ///
+    /// On some platforms (e.g., Windows), we need to mark the file as
+    /// non-temporary. This operation could fail.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::io::{self, Write};
+    /// # extern crate tempfile;
+    /// use tempfile::NamedTempFile;
+    ///
+    /// # fn main() {
+    /// #     if let Err(_) = run() {
+    /// #         ::std::process::exit(1);
+    /// #     }
+    /// # }
+    /// # fn run() -> Result<(), io::Error> {
+    /// let mut file = NamedTempFile::new()?;
+    /// writeln!(file, "Brian was here. Briefly.")?;
+    ///
+    /// let (file, path) = file.keep()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`PathPersistError`]: struct.PathPersistError.html
+    pub fn keep(self) -> Result<(File, PathBuf), PersistError> {
+        let (file, path) = (self.file, self.path);
+        match path.keep() {
+            Ok(path) => Ok((file, path)),
+            Err(PathPersistError { error, path }) => Err(PersistError {
+                file: NamedTempFile { path, file },
+                error,
+            }),
+        }
+    }
+
     /// Reopen the temporary file.
     ///
     /// This function is useful when you need multiple independent handles to
@@ -705,7 +797,8 @@ impl NamedTempFile {
     /// # }
     /// ```
     pub fn reopen(&self) -> io::Result<File> {
-        imp::reopen(self.as_file(), NamedTempFile::path(self)).with_err_path(|| NamedTempFile::path(self))
+        imp::reopen(self.as_file(), NamedTempFile::path(self))
+            .with_err_path(|| NamedTempFile::path(self))
     }
 
     /// Get a reference to the underlying file.
@@ -731,6 +824,14 @@ impl NamedTempFile {
     /// file.
     pub fn into_temp_path(self) -> TempPath {
         self.path
+    }
+
+    /// Converts the named temporary file into its constituent parts.
+    ///
+    /// Note: When the path is dropped, the file is deleted but the file handle
+    /// is still usable.
+    pub fn into_parts(self) -> (File, TempPath) {
+        (self.file, self.path)
     }
 }
 
@@ -794,7 +895,12 @@ impl std::os::windows::io::AsRawHandle for NamedTempFile {
     }
 }
 
-pub(crate) fn create_named(path: PathBuf) -> io::Result<NamedTempFile> {
+pub(crate) fn create_named(mut path: PathBuf) -> io::Result<NamedTempFile> {
+    // Make the path absolute. Otherwise, changing directories could cause us to
+    // delete the wrong file.
+    if !path.is_absolute() {
+        path = env::current_dir()?.join(path)
+    }
     imp::create_named(&path)
         .with_err_path(|| path.clone())
         .map(|file| NamedTempFile {

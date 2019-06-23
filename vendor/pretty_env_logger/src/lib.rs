@@ -21,30 +21,23 @@
 //! }
 //! ```
 
-extern crate ansi_term;
 extern crate env_logger;
 extern crate log;
 extern crate chrono;
 
-use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering, ATOMIC_USIZE_INIT};
 
 use chrono::Local;
-use ansi_term::{Color, Style};
-use env_logger::Builder;
+use env_logger::{fmt::{Color, Style, StyledValue}, Builder};
 use log::Level;
 
-struct ColorLevel(Level);
-
-impl fmt::Display for ColorLevel {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.0 {
-            Level::Trace => Color::Purple.paint("TRACE"),
-            Level::Debug => Color::Blue.paint("DEBUG"),
-            Level::Info => Color::Green.paint("INFO "),
-            Level::Warn => Color::Yellow.paint("WARN "),
-            Level::Error => Color::Red.paint("ERROR")
-        }.fmt(f)
+fn colored_level<'a>(style: &'a mut Style, level: Level) -> StyledValue<'a, &'static str> {
+    match level {
+        Level::Trace => style.set_color(Color::Magenta).value("TRACE"),
+        Level::Debug => style.set_color(Color::Blue).value("DEBUG"),
+        Level::Info => style.set_color(Color::Green).value("INFO "),
+        Level::Warn => style.set_color(Color::Yellow).value("WARN "),
+        Level::Error => style.set_color(Color::Red).value("ERROR"),
     }
 }
 
@@ -127,7 +120,7 @@ pub fn init_custom_env(environment_variable_name: &str) {
 ///
 /// This function fails to set the global logger if one has already been set.
 pub fn try_init_custom_env(environment_variable_name: &str) -> Result<(), log::SetLoggerError> {
-    let mut builder = formatted_builder()?;
+    let mut builder = formatted_builder();
 
     if let Ok(s) = ::std::env::var(environment_variable_name) {
         builder.parse(&s);
@@ -157,10 +150,10 @@ pub fn try_init_timed_custom_env(environment_variable_name: &str) -> Result<(), 
 
 /// Returns a `env_logger::Builder` for further customization.
 ///
-/// This method will return a colored and formatted) `env_logger::Builder`
+/// This method will return a colored and formatted `env_logger::Builder`
 /// for further customization. Refer to env_logger::Build crate documentation
 /// for further details and usage.
-pub fn formatted_builder() -> Result<Builder, log::SetLoggerError> {
+pub fn formatted_builder() -> Builder {
     let mut builder = Builder::new();
 
     builder.format(|f, record| {
@@ -171,18 +164,27 @@ pub fn formatted_builder() -> Result<Builder, log::SetLoggerError> {
             MAX_MODULE_WIDTH.store(target.len(), Ordering::Relaxed);
             max_width = target.len();
         }
-        writeln!(f, " {} {} > {}",
-                 ColorLevel(record.level()),
-                 Style::new().bold().paint(format!("{: <width$}", target, width=max_width)),
-                 record.args())
+
+
+        let mut style = f.style();
+        let level = colored_level(&mut style, record.level());
+        let mut style = f.style();
+        let target = style.set_bold(true).value(format!("{: <width$}", target, width=max_width));
+        writeln!(
+            f,
+            " {} {} > {}",
+            level,
+            target,
+            record.args(),
+        )
     });
 
-    Ok(builder)
+    builder
 }
 
 /// Returns a `env_logger::Builder` for further customization.
 ///
-/// This method will return a colored and time formatted) `env_logger::Builder`
+/// This method will return a colored and time formatted `env_logger::Builder`
 /// for further customization. Refer to env_logger::Build crate documentation
 /// for further details and usage.
 pub fn formatted_timed_builder() -> Builder {
@@ -196,11 +198,19 @@ pub fn formatted_timed_builder() -> Builder {
             MAX_MODULE_WIDTH.store(target.len(), Ordering::Relaxed);
             max_width = target.len();
         }
-        writeln!(f, " {} {} {} > {}",
-                 Local::now().format("%Y-%m-%d %H:%M:%S"),
-                 ColorLevel(record.level()),
-                 Style::new().bold().paint(format!("{: <width$}", target, width=max_width)),
-                 record.args())
+
+        let mut style = f.style();
+        let level = colored_level(&mut style, record.level());
+        let mut style = f.style();
+        let target = style.set_bold(true).value(format!("{: <width$}", target, width=max_width));
+        writeln!(
+            f,
+            " {} {} {} > {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
+            level,
+            target,
+            record.args(),
+        )
     });
 
     builder

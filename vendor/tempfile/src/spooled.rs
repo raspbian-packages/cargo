@@ -1,7 +1,6 @@
-use std::fs::File;
-use std::io::{self, Read, Write, Seek, SeekFrom, Cursor};
 use file::tempfile;
-use std::mem::drop;
+use std::fs::File;
+use std::io::{self, Cursor, Read, Seek, SeekFrom, Write};
 
 #[derive(Debug)]
 enum SpooledInner {
@@ -86,9 +85,8 @@ impl SpooledTempFile {
         if !self.is_rolled() {
             let mut file = tempfile()?;
             if let SpooledInner::InMemory(ref mut cursor) = self.inner {
-                file.write(cursor.get_ref())?;
+                file.write_all(cursor.get_ref())?;
                 file.seek(SeekFrom::Start(cursor.position()))?;
-                drop(cursor);
             }
             self.inner = SpooledInner::OnDisk(file);
         }
@@ -103,7 +101,7 @@ impl SpooledTempFile {
             SpooledInner::InMemory(ref mut cursor) => {
                 cursor.get_mut().resize(size as usize, 0);
                 Ok(())
-            },
+            }
             SpooledInner::OnDisk(ref mut file) => file.set_len(size),
         }
     }

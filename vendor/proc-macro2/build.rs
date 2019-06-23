@@ -23,10 +23,11 @@
 //     were added one version later than the rest of the proc_macro token API.
 //     Enabled on rustc 1.29 only.
 //
-// "nightly"
-//     Enable the Span::unwrap method. This is to support proc_macro_span and
-//     proc_macro_diagnostic use on the nightly channel without requiring the
-//     semver exemption opt-in. Enabled when building with nightly.
+// "proc_macro_span"
+//     Enable non-dummy behavior of Span::start and Span::end methods which
+//     requires an unstable compiler feature. Enabled when building with
+//     nightly, unless `-Z allow-feature` in RUSTFLAGS disallows unstable
+//     features.
 //
 // "super_unstable"
 //     Implement the semver exempt API in terms of the nightly-only proc_macro
@@ -81,8 +82,8 @@ fn main() {
         println!("cargo:rustc-cfg=slow_extend");
     }
 
-    if version.nightly {
-        println!("cargo:rustc-cfg=nightly");
+    if version.nightly && feature_allowed("proc_macro_span") {
+        println!("cargo:rustc-cfg=proc_macro_span");
     }
 
     if semver_exempt && version.nightly {
@@ -130,4 +131,27 @@ fn rustc_version() -> Option<RustcVersion> {
         minor: minor,
         nightly: nightly,
     })
+}
+
+fn feature_allowed(feature: &str) -> bool {
+    // Recognized formats:
+    //
+    //     -Z allow-features=feature1,feature2
+    //
+    //     -Zallow-features=feature1,feature2
+
+    if let Some(rustflags) = env::var_os("RUSTFLAGS") {
+        for mut flag in rustflags.to_string_lossy().split(' ') {
+            if flag.starts_with("-Z") {
+                flag = &flag["-Z".len()..];
+            }
+            if flag.starts_with("allow-features=") {
+                flag = &flag["allow-features=".len()..];
+                return flag.split(',').any(|allowed| allowed == feature);
+            }
+        }
+    }
+
+    // No allow-features= flag, allowed by default.
+    true
 }

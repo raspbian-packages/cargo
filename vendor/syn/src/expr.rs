@@ -36,9 +36,10 @@ ast_enum_of_structs! {
     ///     Expr::If(expr) => {
     ///         /* ... */
     ///     }
+    ///
     ///     /* ... */
     ///     # _ => {}
-    /// }
+    /// # }
     /// # }
     /// ```
     ///
@@ -50,28 +51,15 @@ ast_enum_of_structs! {
     /// `expr.receiver`, `expr.args` etc; if we ended up in the `If` case we get
     /// to use `expr.cond`, `expr.then_branch`, `expr.else_branch`.
     ///
-    /// The pattern is similar if the input expression is borrowed:
-    ///
-    /// ```edition2018
-    /// # use syn::Expr;
-    /// #
-    /// # fn example(expr: &Expr) {
-    /// match *expr {
-    ///     Expr::MethodCall(ref expr) => {
-    /// #   }
-    /// #   _ => {}
-    /// # }
-    /// # }
-    /// ```
-    ///
     /// This approach avoids repeating the variant names twice on every line.
     ///
     /// ```edition2018
     /// # use syn::{Expr, ExprMethodCall};
     /// #
     /// # fn example(expr: Expr) {
-    /// # match expr {
-    /// Expr::MethodCall(ExprMethodCall { method, args, .. }) => { // repetitive
+    /// // Repetitive; recommend not doing this.
+    /// match expr {
+    ///     Expr::MethodCall(ExprMethodCall { method, args, .. }) => {
     /// # }
     /// # _ => {}
     /// # }
@@ -84,10 +72,10 @@ ast_enum_of_structs! {
     /// ```edition2018
     /// # use syn::{Expr, ExprField};
     /// #
-    /// # fn example(discriminant: &ExprField) {
+    /// # fn example(discriminant: ExprField) {
     /// // Binding is called `base` which is the name I would use if I were
     /// // assigning `*discriminant.base` without an `if let`.
-    /// if let Expr::Tuple(ref base) = *discriminant.base {
+    /// if let Expr::Tuple(base) = *discriminant.base {
     /// # }
     /// # }
     /// ```
@@ -799,8 +787,8 @@ ast_enum_of_structs! {
         /// A path pattern like `Color::Red`, optionally qualified with a
         /// self-type.
         ///
-        /// Unquailfied path patterns can legally refer to variants, structs,
-        /// constants or associated constants. Quailfied path patterns like
+        /// Unqualified path patterns can legally refer to variants, structs,
+        /// constants or associated constants. Qualified path patterns like
         /// `<A>::B::C` and `<A as Trait>::B::C` can only legally refer to
         /// associated constants.
         ///
@@ -1464,7 +1452,7 @@ pub mod parsing {
         if input.peek(token::Group) {
             input.call(expr_group).map(Expr::Group)
         } else if input.peek(Lit) {
-            input.call(expr_lit).map(Expr::Lit)
+            input.parse().map(Expr::Lit)
         } else if input.peek(Token![async])
             && (input.peek2(token::Brace) || input.peek2(Token![move]) && input.peek3(token::Brace))
         {
@@ -1500,15 +1488,15 @@ pub mod parsing {
         } else if input.peek(Token![let]) {
             input.call(expr_let).map(Expr::Let)
         } else if input.peek(Token![if]) {
-            input.call(expr_if).map(Expr::If)
+            input.parse().map(Expr::If)
         } else if input.peek(Token![while]) {
-            input.call(expr_while).map(Expr::While)
+            input.parse().map(Expr::While)
         } else if input.peek(Token![for]) {
-            input.call(expr_for_loop).map(Expr::ForLoop)
+            input.parse().map(Expr::ForLoop)
         } else if input.peek(Token![loop]) {
-            input.call(expr_loop).map(Expr::Loop)
+            input.parse().map(Expr::Loop)
         } else if input.peek(Token![match]) {
-            input.call(expr_match).map(Expr::Match)
+            input.parse().map(Expr::Match)
         } else if input.peek(Token![yield]) {
             input.call(expr_yield).map(Expr::Yield)
         } else if input.peek(Token![unsafe]) {
@@ -1520,11 +1508,11 @@ pub mod parsing {
         } else if input.peek(Lifetime) {
             let the_label: Label = input.parse()?;
             let mut expr = if input.peek(Token![while]) {
-                Expr::While(input.call(expr_while)?)
+                Expr::While(input.parse()?)
             } else if input.peek(Token![for]) {
-                Expr::ForLoop(input.call(expr_for_loop)?)
+                Expr::ForLoop(input.parse()?)
             } else if input.peek(Token![loop]) {
-                Expr::Loop(input.call(expr_loop)?)
+                Expr::Loop(input.parse()?)
             } else if input.peek(token::Brace) {
                 Expr::Block(input.call(expr_block)?)
             } else {
@@ -1546,7 +1534,7 @@ pub mod parsing {
     #[cfg(not(feature = "full"))]
     fn atom_expr(input: ParseStream, _allow_struct: AllowStruct) -> Result<Expr> {
         if input.peek(Lit) {
-            input.call(expr_lit).map(Expr::Lit)
+            input.parse().map(Expr::Lit)
         } else if input.peek(token::Paren) {
             input.call(expr_paren).map(Expr::Paren)
         } else if input.peek(Ident)
@@ -1695,15 +1683,15 @@ pub mod parsing {
     fn expr_early(input: ParseStream) -> Result<Expr> {
         let mut attrs = input.call(Attribute::parse_outer)?;
         let mut expr = if input.peek(Token![if]) {
-            Expr::If(input.call(expr_if)?)
+            Expr::If(input.parse()?)
         } else if input.peek(Token![while]) {
-            Expr::While(input.call(expr_while)?)
+            Expr::While(input.parse()?)
         } else if input.peek(Token![for]) {
-            Expr::ForLoop(input.call(expr_for_loop)?)
+            Expr::ForLoop(input.parse()?)
         } else if input.peek(Token![loop]) {
-            Expr::Loop(input.call(expr_loop)?)
+            Expr::Loop(input.parse()?)
         } else if input.peek(Token![match]) {
-            Expr::Match(input.call(expr_match)?)
+            Expr::Match(input.parse()?)
         } else if input.peek(Token![try]) && input.peek2(token::Brace) {
             Expr::TryBlock(input.call(expr_try_block)?)
         } else if input.peek(Token![unsafe]) {
@@ -1735,11 +1723,13 @@ pub mod parsing {
         Ok(expr)
     }
 
-    pub fn expr_lit(input: ParseStream) -> Result<ExprLit> {
-        Ok(ExprLit {
-            attrs: Vec::new(),
-            lit: input.parse()?,
-        })
+    impl Parse for ExprLit {
+        fn parse(input: ParseStream) -> Result<Self> {
+            Ok(ExprLit {
+                attrs: Vec::new(),
+                lit: input.parse()?,
+            })
+        }
     }
 
     #[cfg(feature = "full")]
@@ -1792,20 +1782,22 @@ pub mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_if(input: ParseStream) -> Result<ExprIf> {
-        Ok(ExprIf {
-            attrs: Vec::new(),
-            if_token: input.parse()?,
-            cond: Box::new(input.call(expr_no_struct)?),
-            then_branch: input.parse()?,
-            else_branch: {
-                if input.peek(Token![else]) {
-                    Some(input.call(else_block)?)
-                } else {
-                    None
-                }
-            },
-        })
+    impl Parse for ExprIf {
+        fn parse(input: ParseStream) -> Result<Self> {
+            Ok(ExprIf {
+                attrs: Vec::new(),
+                if_token: input.parse()?,
+                cond: Box::new(input.call(expr_no_struct)?),
+                then_branch: input.parse()?,
+                else_branch: {
+                    if input.peek(Token![else]) {
+                        Some(input.call(else_block)?)
+                    } else {
+                        None
+                    }
+                },
+            })
+        }
     }
 
     #[cfg(feature = "full")]
@@ -1814,7 +1806,7 @@ pub mod parsing {
 
         let lookahead = input.lookahead1();
         let else_branch = if input.peek(Token![if]) {
-            input.call(expr_if).map(Expr::If)?
+            input.parse().map(Expr::If)?
         } else if input.peek(token::Brace) {
             Expr::Block(ExprBlock {
                 attrs: Vec::new(),
@@ -1829,75 +1821,131 @@ pub mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_for_loop(input: ParseStream) -> Result<ExprForLoop> {
-        let label: Option<Label> = input.parse()?;
-        let for_token: Token![for] = input.parse()?;
-        let pat: Pat = input.parse()?;
-        let in_token: Token![in] = input.parse()?;
-        let expr: Expr = input.call(expr_no_struct)?;
+    impl Parse for ExprForLoop {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let label: Option<Label> = input.parse()?;
+            let for_token: Token![for] = input.parse()?;
+            let pat: Pat = input.parse()?;
+            let in_token: Token![in] = input.parse()?;
+            let expr: Expr = input.call(expr_no_struct)?;
 
-        let content;
-        let brace_token = braced!(content in input);
-        let inner_attrs = content.call(Attribute::parse_inner)?;
-        let stmts = content.call(Block::parse_within)?;
+            let content;
+            let brace_token = braced!(content in input);
+            let inner_attrs = content.call(Attribute::parse_inner)?;
+            let stmts = content.call(Block::parse_within)?;
 
-        Ok(ExprForLoop {
-            attrs: inner_attrs,
-            label: label,
-            for_token: for_token,
-            pat: Box::new(pat),
-            in_token: in_token,
-            expr: Box::new(expr),
-            body: Block {
-                brace_token: brace_token,
-                stmts: stmts,
-            },
-        })
-    }
-
-    #[cfg(feature = "full")]
-    fn expr_loop(input: ParseStream) -> Result<ExprLoop> {
-        let label: Option<Label> = input.parse()?;
-        let loop_token: Token![loop] = input.parse()?;
-
-        let content;
-        let brace_token = braced!(content in input);
-        let inner_attrs = content.call(Attribute::parse_inner)?;
-        let stmts = content.call(Block::parse_within)?;
-
-        Ok(ExprLoop {
-            attrs: inner_attrs,
-            label: label,
-            loop_token: loop_token,
-            body: Block {
-                brace_token: brace_token,
-                stmts: stmts,
-            },
-        })
-    }
-
-    #[cfg(feature = "full")]
-    fn expr_match(input: ParseStream) -> Result<ExprMatch> {
-        let match_token: Token![match] = input.parse()?;
-        let expr = expr_no_struct(input)?;
-
-        let content;
-        let brace_token = braced!(content in input);
-        let inner_attrs = content.call(Attribute::parse_inner)?;
-
-        let mut arms = Vec::new();
-        while !content.is_empty() {
-            arms.push(content.call(Arm::parse)?);
+            Ok(ExprForLoop {
+                attrs: inner_attrs,
+                label: label,
+                for_token: for_token,
+                pat: Box::new(pat),
+                in_token: in_token,
+                expr: Box::new(expr),
+                body: Block {
+                    brace_token: brace_token,
+                    stmts: stmts,
+                },
+            })
         }
-
-        Ok(ExprMatch {
-            attrs: inner_attrs,
-            match_token: match_token,
-            expr: Box::new(expr),
-            brace_token: brace_token,
-            arms: arms,
-        })
     }
+
+    #[cfg(feature = "full")]
+    impl Parse for ExprLoop {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let label: Option<Label> = input.parse()?;
+            let loop_token: Token![loop] = input.parse()?;
+
+            let content;
+            let brace_token = braced!(content in input);
+            let inner_attrs = content.call(Attribute::parse_inner)?;
+            let stmts = content.call(Block::parse_within)?;
+
+            Ok(ExprLoop {
+                attrs: inner_attrs,
+                label: label,
+                loop_token: loop_token,
+                body: Block {
+                    brace_token: brace_token,
+                    stmts: stmts,
+                },
+            })
+        }
+    }
+
+    #[cfg(feature = "full")]
+    impl Parse for ExprMatch {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let match_token: Token![match] = input.parse()?;
+            let expr = expr_no_struct(input)?;
+
+            let content;
+            let brace_token = braced!(content in input);
+            let inner_attrs = content.call(Attribute::parse_inner)?;
+
+            let mut arms = Vec::new();
+            while !content.is_empty() {
+                arms.push(content.call(Arm::parse)?);
+            }
+
+            Ok(ExprMatch {
+                attrs: inner_attrs,
+                match_token: match_token,
+                expr: Box::new(expr),
+                brace_token: brace_token,
+                arms: arms,
+            })
+        }
+    }
+
+    macro_rules! impl_by_parsing_expr {
+        ($expr_type:ty, $variant:ident, $msg:expr) => (
+            #[cfg(all(feature = "full", feature = "printing"))]
+            impl Parse for $expr_type {
+                fn parse(input: ParseStream) -> Result<Self> {
+                    let mut expr: Expr = input.parse()?;
+                    loop {
+                        match expr {
+                            Expr::$variant(inner) => return Ok(inner),
+                            Expr::Group(ExprGroup { expr: next, .. }) => expr = *next,
+                            _ => return Err(Error::new_spanned(expr, $msg))
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    impl_by_parsing_expr!(ExprBox, Box, "expected box expression");
+    impl_by_parsing_expr!(ExprInPlace, InPlace, "expected placement expression");
+    impl_by_parsing_expr!(ExprArray, Array, "expected slice literal expression");
+    impl_by_parsing_expr!(ExprCall, Call, "expected function call expression");
+    impl_by_parsing_expr!(ExprMethodCall, MethodCall, "expected method call expression");
+    impl_by_parsing_expr!(ExprTuple, Tuple, "expected tuple expression");
+    impl_by_parsing_expr!(ExprBinary, Binary, "expected binary operation");
+    impl_by_parsing_expr!(ExprUnary, Unary, "expected unary operation");
+    impl_by_parsing_expr!(ExprCast, Cast, "expected cast expression");
+    impl_by_parsing_expr!(ExprType, Type, "expected type ascription expression");
+    impl_by_parsing_expr!(ExprLet, Let, "expected let guard");
+    impl_by_parsing_expr!(ExprClosure, Closure, "expected closure expression");
+    impl_by_parsing_expr!(ExprUnsafe, Unsafe, "expected unsafe block");
+    impl_by_parsing_expr!(ExprBlock, Block, "expected blocked scope");
+    impl_by_parsing_expr!(ExprAssign, Assign, "expected assignment expression");
+    impl_by_parsing_expr!(ExprAssignOp, AssignOp, "expected compound assignment expression");
+    impl_by_parsing_expr!(ExprField, Field, "expected struct field access");
+    impl_by_parsing_expr!(ExprIndex, Index, "expected indexing expression");
+    impl_by_parsing_expr!(ExprRange, Range, "expected range expression");
+    impl_by_parsing_expr!(ExprReference, Reference, "expected referencing operation");
+    impl_by_parsing_expr!(ExprBreak, Break, "expected break expression");
+    impl_by_parsing_expr!(ExprContinue, Continue, "expected continue expression");
+    impl_by_parsing_expr!(ExprReturn, Return, "expected return expression");
+    impl_by_parsing_expr!(ExprMacro, Macro, "expected macro invocation expression");
+    impl_by_parsing_expr!(ExprStruct, Struct, "expected struct literal expression");
+    impl_by_parsing_expr!(ExprRepeat, Repeat, "expected array literal constructed from one repeated element");
+    impl_by_parsing_expr!(ExprParen, Paren, "expected parenthesized expression");
+    impl_by_parsing_expr!(ExprTry, Try, "expected try expression");
+    impl_by_parsing_expr!(ExprAsync, Async, "expected async block");
+    impl_by_parsing_expr!(ExprTryBlock, TryBlock, "expected try block");
+    impl_by_parsing_expr!(ExprYield, Yield, "expected yield expression");
 
     #[cfg(feature = "full")]
     fn expr_try_block(input: ParseStream) -> Result<ExprTryBlock> {
@@ -2005,26 +2053,28 @@ pub mod parsing {
     }
 
     #[cfg(feature = "full")]
-    fn expr_while(input: ParseStream) -> Result<ExprWhile> {
-        let label: Option<Label> = input.parse()?;
-        let while_token: Token![while] = input.parse()?;
-        let cond = expr_no_struct(input)?;
+    impl Parse for ExprWhile {
+        fn parse(input: ParseStream) -> Result<Self> {
+            let label: Option<Label> = input.parse()?;
+            let while_token: Token![while] = input.parse()?;
+            let cond = expr_no_struct(input)?;
 
-        let content;
-        let brace_token = braced!(content in input);
-        let inner_attrs = content.call(Attribute::parse_inner)?;
-        let stmts = content.call(Block::parse_within)?;
+            let content;
+            let brace_token = braced!(content in input);
+            let inner_attrs = content.call(Attribute::parse_inner)?;
+            let stmts = content.call(Block::parse_within)?;
 
-        Ok(ExprWhile {
-            attrs: inner_attrs,
-            label: label,
-            while_token: while_token,
-            cond: Box::new(cond),
-            body: Block {
-                brace_token: brace_token,
-                stmts: stmts,
-            },
-        })
+            Ok(ExprWhile {
+                attrs: inner_attrs,
+                label: label,
+                while_token: while_token,
+                cond: Box::new(cond),
+                body: Block {
+                    brace_token: brace_token,
+                    stmts: stmts,
+                },
+            })
+        }
     }
 
     #[cfg(feature = "full")]
@@ -2403,8 +2453,8 @@ pub mod parsing {
             || ahead.peek(Token![auto]) && ahead.peek2(Token![trait])
             || ahead.peek(Token![trait])
             || ahead.peek(Token![default])
-                && (ahead.peek2(Token![unsafe]) || ahead.peek2(Token![impl ]))
-            || ahead.peek(Token![impl ])
+                && (ahead.peek2(Token![unsafe]) || ahead.peek2(Token![impl]))
+            || ahead.peek(Token![impl])
             || ahead.peek(Token![macro])
         {
             input.parse().map(Stmt::Item)
@@ -2876,7 +2926,7 @@ pub mod parsing {
 
         let lookahead = input.lookahead1();
         let expr = if lookahead.peek(Lit) {
-            Expr::Lit(input.call(expr_lit)?)
+            Expr::Lit(input.parse()?)
         } else if lookahead.peek(Ident)
             || lookahead.peek(Token![::])
             || lookahead.peek(Token![<])

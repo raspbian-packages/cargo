@@ -35,8 +35,8 @@ impl TokenStream {
 
 #[cfg(span_locations)]
 fn get_cursor(src: &str) -> Cursor {
-    // Create a dummy file & add it to the codemap
-    CODEMAP.with(|cm| {
+    // Create a dummy file & add it to the source map
+    SOURCE_MAP.with(|cm| {
         let mut cm = cm.borrow_mut();
         let name = format!("<parsed string {}>", cm.files.len());
         let span = cm.add_file(&name, src);
@@ -56,7 +56,7 @@ impl FromStr for TokenStream {
     type Err = LexError;
 
     fn from_str(src: &str) -> Result<TokenStream, LexError> {
-        // Create a dummy file & add it to the codemap
+        // Create a dummy file & add it to the source map
         let cursor = get_cursor(src);
 
         match token_stream(cursor) {
@@ -225,7 +225,7 @@ pub struct LineColumn {
 
 #[cfg(span_locations)]
 thread_local! {
-    static CODEMAP: RefCell<Codemap> = RefCell::new(Codemap {
+    static SOURCE_MAP: RefCell<SourceMap> = RefCell::new(SourceMap {
         // NOTE: We start with a single dummy file which all call_site() and
         // def_site() spans reference.
         files: vec![{
@@ -295,12 +295,12 @@ fn lines_offsets(s: &str) -> Vec<usize> {
 }
 
 #[cfg(span_locations)]
-struct Codemap {
+struct SourceMap {
     files: Vec<FileInfo>,
 }
 
 #[cfg(span_locations)]
-impl Codemap {
+impl SourceMap {
     fn next_start_pos(&self) -> u32 {
         // Add 1 so there's always space between files.
         //
@@ -384,7 +384,7 @@ impl Span {
 
     #[cfg(procmacro2_semver_exempt)]
     pub fn source_file(&self) -> SourceFile {
-        CODEMAP.with(|cm| {
+        SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             let fi = cm.fileinfo(*self);
             SourceFile {
@@ -395,7 +395,7 @@ impl Span {
 
     #[cfg(span_locations)]
     pub fn start(&self) -> LineColumn {
-        CODEMAP.with(|cm| {
+        SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             let fi = cm.fileinfo(*self);
             fi.offset_line_column(self.lo as usize)
@@ -404,7 +404,7 @@ impl Span {
 
     #[cfg(span_locations)]
     pub fn end(&self) -> LineColumn {
-        CODEMAP.with(|cm| {
+        SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             let fi = cm.fileinfo(*self);
             fi.offset_line_column(self.hi as usize)
@@ -413,7 +413,7 @@ impl Span {
 
     #[cfg(procmacro2_semver_exempt)]
     pub fn join(&self, other: Span) -> Option<Span> {
-        CODEMAP.with(|cm| {
+        SOURCE_MAP.with(|cm| {
             let cm = cm.borrow();
             // If `other` is not within the same FileInfo as us, return None.
             if !cm.fileinfo(*self).span_within(other) {
@@ -523,7 +523,7 @@ pub struct Ident {
 
 impl Ident {
     fn _new(string: &str, raw: bool, span: Span) -> Ident {
-        validate_term(string);
+        validate_ident(string);
 
         Ident {
             sym: string.to_owned(),
@@ -566,7 +566,7 @@ fn is_ident_continue(c: char) -> bool {
         || (c > '\x7f' && UnicodeXID::is_xid_continue(c))
 }
 
-fn validate_term(string: &str) {
+fn validate_ident(string: &str) {
     let validate = string;
     if validate.is_empty() {
         panic!("Ident is not allowed to be empty; use Option<Ident>");
@@ -734,17 +734,31 @@ impl Literal {
     }
 
     pub fn string(t: &str) -> Literal {
-        let mut s = t
-            .chars()
-            .flat_map(|c| c.escape_default())
-            .collect::<String>();
-        s.push('"');
-        s.insert(0, '"');
-        Literal::_new(s)
+        let mut text = String::with_capacity(t.len() + 2);
+        text.push('"');
+        for c in t.chars() {
+            if c == '\'' {
+                // escape_default turns this into "\'" which is unnecessary.
+                text.push(c);
+            } else {
+                text.extend(c.escape_default());
+            }
+        }
+        text.push('"');
+        Literal::_new(text)
     }
 
     pub fn character(t: char) -> Literal {
-        Literal::_new(format!("'{}'", t.escape_default().collect::<String>()))
+        let mut text = String::new();
+        text.push('\'');
+        if t == '"' {
+            // escape_default turns this into '\"' which is unnecessary.
+            text.push(t);
+        } else {
+            text.extend(t.escape_default());
+        }
+        text.push('\'');
+        Literal::_new(text)
     }
 
     pub fn byte_string(bytes: &[u8]) -> Literal {

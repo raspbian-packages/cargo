@@ -2,7 +2,7 @@
 +++ b/Cargo.toml
 @@ -54,13 +54,12 @@
  [target."cfg(all(unix, not(target_os = \"macos\")))".dependencies.openssl-sys]
- version = "0.9.33"
+ version = "0.9.43"
  optional = true
 -[target."cfg(target_env = \"msvc\")".dependencies.kernel32-sys]
 -version = "0.2.2"
@@ -23,12 +23,12 @@
  #[cfg(target_env = "msvc")]
  mod win {
 -    use kernel32;
+     use schannel::cert_context::ValidUses;
+     use schannel::cert_store::CertStore;
      use std::ffi::CString;
      use std::mem;
      use std::ptr;
-     use schannel::cert_context::ValidUses;
-     use schannel::cert_store::CertStore;
-     use winapi::{self, c_void, c_uchar, c_long, c_int};
+     use winapi::{self, c_int, c_long, c_uchar, c_void};
 +    use winapi::um::libloaderapi::{GetModuleHandleW, GetProcAddress};
  
      fn lookup(module: &str, symbol: &str) -> Option<*const c_void> {
@@ -45,7 +45,7 @@
              } else {
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -62,8 +62,6 @@
+@@ -63,8 +63,6 @@
  extern crate winapi;
  
  #[cfg(target_env = "msvc")]
@@ -56,12 +56,12 @@
  use std::ffi::CStr;
 --- a/src/multi.rs
 +++ b/src/multi.rs
-@@ -8,7 +8,7 @@
- use curl_sys;
- 
+@@ -10,7 +10,7 @@
+ #[cfg(unix)]
+ use libc::{fd_set, pollfd, POLLIN, POLLOUT, POLLPRI};
  #[cfg(windows)]
 -use winapi::winsock2::fd_set;
 +use winapi::um::winsock2::fd_set;
- #[cfg(unix)]
- use libc::{fd_set, pollfd, POLLIN, POLLPRI, POLLOUT};
  
+ use easy::{Easy, Easy2};
+ use panic;

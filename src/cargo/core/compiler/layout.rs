@@ -53,8 +53,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use core::Workspace;
-use util::{CargoResult, Config, FileLock, Filesystem};
+use crate::core::Workspace;
+use crate::util::{CargoResult, Config, FileLock, Filesystem};
 
 /// Contains the paths of all target output locations.
 ///
@@ -67,7 +67,7 @@ pub struct Layout {
     incremental: PathBuf,
     fingerprint: PathBuf,
     examples: PathBuf,
-    /// The lockfile for a build, will be unlocked when this struct is `drop`ped.
+    /// The lock file for a build, will be unlocked when this struct is `drop`ped.
     _lock: FileLock,
 }
 
@@ -84,7 +84,7 @@ impl Layout {
     ///
     /// Differs from `at` in that this calculates the root path from the workspace target directory,
     /// adding the target triple and the profile (debug, release, ...).
-    pub fn new(ws: &Workspace, triple: Option<&str>, dest: &str) -> CargoResult<Layout> {
+    pub fn new(ws: &Workspace<'_>, triple: Option<&str>, dest: &str) -> CargoResult<Layout> {
         let mut path = ws.target_dir();
         // Flexible target specifications often point at json files, so interpret
         // the target triple as a Path and then just use the file stem as the
@@ -95,7 +95,7 @@ impl Layout {
                 path.push(
                     triple
                         .file_stem()
-                        .ok_or_else(|| format_err!("invalid target"))?,
+                        .ok_or_else(|| failure::format_err!("invalid target"))?,
                 );
             } else {
                 path.push(triple);
@@ -156,7 +156,7 @@ impl Layout {
         // doesn't prevent Cargo from working
     }
 
-    /// Make sure all directories stored in the Layout exist on the filesystem.
+    /// Makes sure all directories stored in the Layout exist on the filesystem.
     pub fn prepare(&mut self) -> io::Result<()> {
         if fs::metadata(&self.root).is_err() {
             fs::create_dir_all(&self.root)?;

@@ -819,7 +819,7 @@ pub mod parsing {
                     || lookahead.peek(Token![auto]) && ahead.peek2(Token![trait])
                 {
                     input.parse().map(Item::Trait)
-                } else if lookahead.peek(Token![impl ]) {
+                } else if lookahead.peek(Token![impl]) {
                     input.parse().map(Item::Impl)
                 } else if lookahead.peek(Token![async])
                     || lookahead.peek(Token![extern])
@@ -847,7 +847,7 @@ pub mod parsing {
                 input.call(parse_trait_or_trait_alias)
             } else if lookahead.peek(Token![auto]) && ahead.peek2(Token![trait]) {
                 input.parse().map(Item::Trait)
-            } else if lookahead.peek(Token![impl ])
+            } else if lookahead.peek(Token![impl])
                 || lookahead.peek(Token![default]) && !ahead.peek2(Token![!])
             {
                 input.parse().map(Item::Impl)
@@ -984,56 +984,58 @@ pub mod parsing {
                 vis: input.parse()?,
                 use_token: input.parse()?,
                 leading_colon: input.parse()?,
-                tree: input.call(use_tree)?,
+                tree: input.parse()?,
                 semi_token: input.parse()?,
             })
         }
     }
 
-    fn use_tree(input: ParseStream) -> Result<UseTree> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Ident)
-            || lookahead.peek(Token![self])
-            || lookahead.peek(Token![super])
-            || lookahead.peek(Token![crate])
-            || lookahead.peek(Token![extern])
-        {
-            let ident = input.call(Ident::parse_any)?;
-            if input.peek(Token![::]) {
-                Ok(UseTree::Path(UsePath {
-                    ident: ident,
-                    colon2_token: input.parse()?,
-                    tree: Box::new(input.call(use_tree)?),
+    impl Parse for UseTree {
+        fn parse(input: ParseStream) -> Result<UseTree> {
+            let lookahead = input.lookahead1();
+            if lookahead.peek(Ident)
+                || lookahead.peek(Token![self])
+                || lookahead.peek(Token![super])
+                || lookahead.peek(Token![crate])
+                || lookahead.peek(Token![extern])
+            {
+                let ident = input.call(Ident::parse_any)?;
+                if input.peek(Token![::]) {
+                    Ok(UseTree::Path(UsePath {
+                        ident: ident,
+                        colon2_token: input.parse()?,
+                        tree: Box::new(input.parse()?),
+                    }))
+                } else if input.peek(Token![as]) {
+                    Ok(UseTree::Rename(UseRename {
+                        ident: ident,
+                        as_token: input.parse()?,
+                        rename: {
+                            if input.peek(Ident) {
+                                input.parse()?
+                            } else if input.peek(Token![_]) {
+                                Ident::from(input.parse::<Token![_]>()?)
+                            } else {
+                                return Err(input.error("expected identifier or underscore"));
+                            }
+                        },
+                    }))
+                } else {
+                    Ok(UseTree::Name(UseName { ident: ident }))
+                }
+            } else if lookahead.peek(Token![*]) {
+                Ok(UseTree::Glob(UseGlob {
+                    star_token: input.parse()?,
                 }))
-            } else if input.peek(Token![as]) {
-                Ok(UseTree::Rename(UseRename {
-                    ident: ident,
-                    as_token: input.parse()?,
-                    rename: {
-                        if input.peek(Ident) {
-                            input.parse()?
-                        } else if input.peek(Token![_]) {
-                            Ident::from(input.parse::<Token![_]>()?)
-                        } else {
-                            return Err(input.error("expected identifier or underscore"));
-                        }
-                    },
+            } else if lookahead.peek(token::Brace) {
+                let content;
+                Ok(UseTree::Group(UseGroup {
+                    brace_token: braced!(content in input),
+                    items: content.parse_terminated(UseTree::parse)?,
                 }))
             } else {
-                Ok(UseTree::Name(UseName { ident: ident }))
+                Err(lookahead.error())
             }
-        } else if lookahead.peek(Token![*]) {
-            Ok(UseTree::Glob(UseGlob {
-                star_token: input.parse()?,
-            }))
-        } else if lookahead.peek(token::Brace) {
-            let content;
-            Ok(UseTree::Group(UseGroup {
-                brace_token: braced!(content in input),
-                items: content.parse_terminated(use_tree)?,
-            }))
-        } else {
-            Err(lookahead.error())
         }
     }
 
@@ -1092,6 +1094,13 @@ pub mod parsing {
             let content;
             let paren_token = parenthesized!(content in input);
             let inputs = content.parse_terminated(FnArg::parse)?;
+            let variadic: Option<Token![...]> = match inputs.last() {
+                Some(punctuated::Pair::End(&FnArg::Captured(ArgCaptured {
+                    ty: Type::Verbatim(TypeVerbatim { ref tts }),
+                    ..
+                }))) => parse2(tts.clone()).ok(),
+                _ => None,
+            };
 
             let output: ReturnType = input.parse()?;
             let where_clause: Option<WhereClause> = input.parse()?;
@@ -1114,7 +1123,7 @@ pub mod parsing {
                     paren_token: paren_token,
                     inputs: inputs,
                     output: output,
-                    variadic: None,
+                    variadic: variadic,
                     generics: Generics {
                         where_clause: where_clause,
                         ..generics
@@ -1179,7 +1188,23 @@ pub mod parsing {
         Ok(ArgCaptured {
             pat: input.parse()?,
             colon_token: input.parse()?,
-            ty: input.parse()?,
+            ty: match input.parse::<Token![...]>() {
+                Ok(dot3) => {
+                    let args = vec![
+                        TokenTree::Punct(Punct::new('.', Spacing::Joint)),
+                        TokenTree::Punct(Punct::new('.', Spacing::Joint)),
+                        TokenTree::Punct(Punct::new('.', Spacing::Alone)),
+                    ];
+                    let tokens = TokenStream::from_iter(args.into_iter().zip(&dot3.spans).map(
+                        |(mut arg, span)| {
+                            arg.set_span(*span);
+                            arg
+                        },
+                    ));
+                    Type::Verbatim(TypeVerbatim { tts: tokens })
+                }
+                Err(_) => input.parse()?,
+            },
         })
     }
 
@@ -1823,7 +1848,7 @@ pub mod parsing {
             let outer_attrs = input.call(Attribute::parse_outer)?;
             let defaultness: Option<Token![default]> = input.parse()?;
             let unsafety: Option<Token![unsafe]> = input.parse()?;
-            let impl_token: Token![impl ] = input.parse()?;
+            let impl_token: Token![impl] = input.parse()?;
 
             let has_generics = input.peek(Token![<])
                 && (input.peek2(Token![>])

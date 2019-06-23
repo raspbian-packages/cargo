@@ -112,10 +112,14 @@ Comment: see upstream projects,
  * https://github.com/BurntSushi/walkdir
  * https://github.com/BurntSushi/winapi-util
 
-Files: vendor/ucd-util/*
-Copyright: 2015 Andrew Gallant <jamslam@gmail.com>
+Files:
+ vendor/bstr/*
+ vendor/ucd-util/*
+Copyright: 2015-2019 Andrew Gallant <jamslam@gmail.com>
 License: MIT or Apache-2.0
-Comment: see https://github.com/BurntSushi/rucd
+Comment:
+ see https://github.com/BurntSushi/bstr
+ see https://github.com/BurntSushi/rucd
 
 Files: vendor/ansi_term/*
 Copyright: 2014, Benjamin Sago <ogham@bsago.me>
@@ -138,6 +142,11 @@ Files: vendor/bit-set/*
 Copyright: 2016 The Rust Project Developers
            Alexis Beingessner <a.beingessner@gmail.com>
 License: MIT or Apache-2.0
+
+Files: vendor/bytes/*
+Copyright: 2015-2019 Carl Lerche <me@carllerche.com>
+License: MIT
+Comment: see https://github.com/carllerche/bytes
 
 Files: vendor/chrono/*
 Copyright: 2014-2018 Kang Seonghoon <public+rust@mearie.org>
@@ -185,10 +194,9 @@ Comment:
 
 Files: vendor/curl/*
        vendor/curl-sys/*
-Copyright: 2014-2016 Carl Lerche <me@carllerche.com>
-           2014-2016 Alex Crichton <alex@alexcrichton.com>
+Copyright: 2014-2019 Alex Crichton <alex@alexcrichton.com>
 License: MIT
-Comment: see https://github.com/sfackler/rust-openssl
+Comment: see https://github.com/alexcrichton/curl-rust
 
 Files: vendor/failure/*
        vendor/failure_derive/*
@@ -215,6 +223,13 @@ Copyright: Brian Anderson <andersb@gmail.com>
 License: MIT or Apache-2.0
 Comment: see https://github.com/brson/home
 
+Files: vendor/http/*
+Copyright: 2017-2019 Alex Crichton <alex@alexcrichton.com>
+           2017-2019 Carl Lerche <me@carllerche.com>
+           2017-2019 Sean McArthur <sean@seanmonstar.com>
+License: MIT or Apache-2.0
+Comment: see https://github.com/hyperium/http
+
 Files: vendor/humantime/*
 Copyright: 2016, The humantime Developers
 License: MIT or Apache-2.0
@@ -224,10 +239,19 @@ Comment:
  .
  See https://github.com/tailhook/humantime
 
-Files: vendor/im-rc/*
+Files:
+ vendor/im-rc/*
+ vendor/sized-chunks/*
 Copyright: 2017-2019 Bodil Stokke <bodil@bodil.org>
 License: MPL-2.0+
-Comment: see https://github.com/bodil/im-rs
+Comment:
+ see https://github.com/bodil/im-rs
+ see https://github.com/bodil/sized-chunks
+
+Files: vendor/iovec/*
+Copyright: 2017-2018 Carl Lerche <me@carllerche.com>
+License: MIT or Apache-2.0
+Comment: see https://github.com/carllerche/iovec
 
 Files: vendor/itoa/*
        vendor/quote/*
@@ -270,6 +294,11 @@ Comment: see https://github.com/SimonSapin/rust-std-candidates
 Files: vendor/num_cpus/*
 Copyright: 2015, Sean McArthur <sean@seanmonstar.com>
 License: MIT or Apache-2.0
+
+Files: vendor/numtoa/*
+Copyright: 2017-2018 Michael Aaron Murphy <mmstickman@gmail.com>
+License: MIT OR Apache-2.0
+Comment: see https://gitlab.com/mmstick/numtoa
 
 Files: vendor/opener/*
 Copyright: 2018 Brian Bowman <seeker14491@gmail.com>
@@ -417,10 +446,12 @@ Copyright: 2015-2017 Jonathan Reem <jonathan.reem@gmail.com>
 License: MIT
 Comment: see https://github.com/reem/
 
-Files: vendor/url/*
-       vendor/percent-encoding/*
+Files:
+ vendor/url/*
+ vendor/url_serde/*
+ vendor/percent-encoding/*
 Copyright: 2015-2016 Simon Sapin <simon.sapin@exyr.org>
-           2013-2016 The rust-url developers
+           2013-2019 The rust-url developers
 License: MIT or Apache-2.0
 Comment: see https://github.com/servo/rust-url
          see https://github.com/servo/rust-url/tree/master/percent_encoding

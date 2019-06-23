@@ -1,2 +1,2 @@
-# Override for js file from vendored crate libnghttp2-sys documentation we can safely ignore this.
-source-is-missing
+# debian policy bug #649530
+cargo source: missing-license-paragraph-in-dep5-copyright mpl-2.0+ (paragraph at line *)

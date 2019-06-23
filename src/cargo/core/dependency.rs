@@ -2,14 +2,17 @@ use std::fmt;
 use std::rc::Rc;
 use std::str::FromStr;
 
+use log::trace;
 use semver::ReqParseError;
 use semver::VersionReq;
 use serde::ser;
+use serde::Serialize;
+use url::Url;
 
-use core::interning::InternedString;
-use core::{PackageId, SourceId, Summary};
-use util::errors::{CargoError, CargoResult, CargoResultExt};
-use util::{Cfg, CfgExpr, Config};
+use crate::core::interning::InternedString;
+use crate::core::{PackageId, SourceId, Summary};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{Cfg, CfgExpr, Config};
 
 /// Information about a dependency requested by a Cargo manifest.
 /// Cheap to copy.
@@ -18,11 +21,17 @@ pub struct Dependency {
     inner: Rc<Inner>,
 }
 
-/// The data underlying a Dependency.
+/// The data underlying a `Dependency`.
 #[derive(PartialEq, Eq, Hash, Ord, PartialOrd, Clone, Debug)]
 struct Inner {
     name: InternedString,
     source_id: SourceId,
+    /// Source ID for the registry as specified in the manifest.
+    ///
+    /// This will be None if it is not specified (crates.io dependency).
+    /// This is different from `source_id` for example when both a `path` and
+    /// `registry` is specified. Or in the case of a crates.io dependency,
+    /// `source_id` will be crates.io and this will be None.
     registry_id: Option<SourceId>,
     req: VersionReq,
     specified_req: bool,
@@ -57,6 +66,10 @@ struct SerializedDependency<'a> {
     uses_default_features: bool,
     features: &'a [InternedString],
     target: Option<&'a Platform>,
+    /// The registry URL this dependency is from.
+    /// If None, then it comes from the default registry (crates.io).
+    #[serde(with = "url_serde")]
+    registry: Option<Url>,
 }
 
 impl ser::Serialize for Dependency {
@@ -74,6 +87,7 @@ impl ser::Serialize for Dependency {
             features: self.features(),
             target: self.platform(),
             rename: self.explicit_name_in_toml().map(|s| s.as_str()),
+            registry: self.registry_id().map(|sid| sid.url().clone()),
         }
         .serialize(s)
     }
@@ -219,7 +233,7 @@ impl Dependency {
     /// This is the name of this `Dependency` as listed in `Cargo.toml`.
     ///
     /// Or in other words, this is what shows up in the `[dependencies]` section
-    /// on the left hand side. This is **not** the name of the package that's
+    /// on the left hand side. This is *not* the name of the package that's
     /// being depended on as the dependency can be renamed. For that use
     /// `package_name` below.
     ///
@@ -326,13 +340,13 @@ impl Dependency {
         self
     }
 
-    /// Set the source id for this dependency
+    /// Sets the source ID for this dependency.
     pub fn set_source_id(&mut self, id: SourceId) -> &mut Dependency {
         Rc::make_mut(&mut self.inner).source_id = id;
         self
     }
 
-    /// Set the version requirement for this dependency
+    /// Sets the version requirement for this dependency.
     pub fn set_version_req(&mut self, req: VersionReq) -> &mut Dependency {
         Rc::make_mut(&mut self.inner).req = req;
         self
@@ -348,7 +362,7 @@ impl Dependency {
         self
     }
 
-    /// Lock this dependency to depending on the specified package id
+    /// Locks this dependency to depending on the specified package ID.
     pub fn lock_to(&mut self, id: PackageId) -> &mut Dependency {
         assert_eq!(self.inner.source_id, id.source_id());
         assert!(self.inner.req.matches(id.version()));
@@ -363,14 +377,14 @@ impl Dependency {
             .set_source_id(id.source_id())
     }
 
-    /// Returns whether this is a "locked" dependency, basically whether it has
+    /// Returns `true` if this is a "locked" dependency, basically whether it has
     /// an exact version req.
     pub fn is_locked(&self) -> bool {
         // Kind of a hack to figure this out, but it works!
         self.inner.req.to_string().starts_with('=')
     }
 
-    /// Returns false if the dependency is only used to build the local package.
+    /// Returns `false` if the dependency is only used to build the local package.
     pub fn is_transitive(&self) -> bool {
         match self.inner.kind {
             Kind::Normal | Kind::Build => true,
@@ -389,7 +403,7 @@ impl Dependency {
         self.inner.optional
     }
 
-    /// Returns true if the default features of the dependency are requested.
+    /// Returns `true` if the default features of the dependency are requested.
     pub fn uses_default_features(&self) -> bool {
         self.inner.default_features
     }
@@ -398,17 +412,17 @@ impl Dependency {
         &self.inner.features
     }
 
-    /// Returns true if the package (`sum`) can fulfill this dependency request.
+    /// Returns `true` if the package (`sum`) can fulfill this dependency request.
     pub fn matches(&self, sum: &Summary) -> bool {
         self.matches_id(sum.package_id())
     }
 
-    /// Returns true if the package (`sum`) can fulfill this dependency request.
+    /// Returns `true` if the package (`sum`) can fulfill this dependency request.
     pub fn matches_ignoring_source(&self, id: PackageId) -> bool {
         self.package_name() == id.name() && self.version_req().matches(id.version())
     }
 
-    /// Returns true if the package (`id`) can fulfill this dependency request.
+    /// Returns `true` if the package (`id`) can fulfill this dependency request.
     pub fn matches_id(&self, id: PackageId) -> bool {
         self.inner.name == id.name()
             && (self.inner.only_match_name
@@ -447,15 +461,14 @@ impl ser::Serialize for Platform {
 }
 
 impl FromStr for Platform {
-    type Err = CargoError;
+    type Err = failure::Error;
 
     fn from_str(s: &str) -> CargoResult<Platform> {
         if s.starts_with("cfg(") && s.ends_with(')') {
             let s = &s[4..s.len() - 1];
-            let p = s
-                .parse()
-                .map(Platform::Cfg)
-                .chain_err(|| format_err!("failed to parse `{}` as a cfg expression", s))?;
+            let p = s.parse().map(Platform::Cfg).chain_err(|| {
+                failure::format_err!("failed to parse `{}` as a cfg expression", s)
+            })?;
             Ok(p)
         } else {
             Ok(Platform::Name(s.to_string()))
@@ -464,7 +477,7 @@ impl FromStr for Platform {
 }
 
 impl fmt::Display for Platform {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Platform::Name(ref n) => n.fmt(f),
             Platform::Cfg(ref e) => write!(f, "cfg({})", e),

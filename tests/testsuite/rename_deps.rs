@@ -1,7 +1,7 @@
-use support::git;
-use support::paths;
-use support::registry::Package;
-use support::{basic_manifest, project};
+use crate::support::git;
+use crate::support::paths;
+use crate::support::registry::Package;
+use crate::support::{basic_manifest, project};
 
 #[test]
 fn rename_dependency() {
@@ -21,7 +21,8 @@ fn rename_dependency() {
             bar = { version = "0.1.0" }
             baz = { version = "0.2.0", package = "bar" }
         "#,
-        ).file("src/lib.rs", "extern crate bar; extern crate baz;")
+        )
+        .file("src/lib.rs", "extern crate bar; extern crate baz;")
         .build();
 
     p.cargo("build").run();
@@ -41,7 +42,8 @@ fn rename_with_different_names() {
             [dependencies]
             baz = { path = "bar", package = "bar" }
         "#,
-        ).file("src/lib.rs", "extern crate baz;")
+        )
+        .file("src/lib.rs", "extern crate baz;")
         .file(
             "bar/Cargo.toml",
             r#"
@@ -53,7 +55,8 @@ fn rename_with_different_names() {
             [lib]
             name = "random_name"
         "#,
-        ).file("bar/src/lib.rs", "")
+        )
+        .file("bar/src/lib.rs", "")
         .build();
 
     p.cargo("build").run();
@@ -97,7 +100,8 @@ fn lots_of_names() {
             "#,
                 g.url()
             ),
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "
                 extern crate foo;
@@ -114,7 +118,8 @@ fn lots_of_names() {
                     foo4::foo4();
                 }
             ",
-        ).file("foo/Cargo.toml", &basic_manifest("foo", "0.1.0"))
+        )
+        .file("foo/Cargo.toml", &basic_manifest("foo", "0.1.0"))
         .file("foo/src/lib.rs", "pub fn foo4() {}")
         .build();
 
@@ -140,10 +145,12 @@ fn rename_and_patch() {
                 [patch.crates-io]
                 foo = { path = "foo" }
             "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "extern crate bar; pub fn foo() { bar::foo(); }",
-        ).file("foo/Cargo.toml", &basic_manifest("foo", "0.1.0"))
+        )
+        .file("foo/Cargo.toml", &basic_manifest("foo", "0.1.0"))
         .file("foo/src/lib.rs", "pub fn foo() {}")
         .build();
 
@@ -168,7 +175,8 @@ fn rename_twice() {
                 [build-dependencies]
                 foo = { version = "0.1" }
             "#,
-        ).file("src/lib.rs", "")
+        )
+        .file("src/lib.rs", "")
         .build();
 
     p.cargo("build -v")
@@ -178,10 +186,10 @@ fn rename_twice() {
 [UPDATING] `[..]` index
 [DOWNLOADING] crates ...
 [DOWNLOADED] foo v0.1.0 (registry [..])
-error: multiple dependencies listed for the same crate must all have the same \
-name, but the dependency on `foo v0.1.0` is listed as having different names
+error: the crate `test v0.1.0 ([CWD])` depends on crate `foo v0.1.0` multiple times with different names
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -200,7 +208,8 @@ fn rename_affects_fingerprint() {
                 [dependencies]
                 foo = { version = "0.1", package = "foo" }
             "#,
-        ).file("src/lib.rs", "extern crate foo;")
+        )
+        .file("src/lib.rs", "extern crate foo;")
         .build();
 
     p.cargo("build -v").run();
@@ -220,6 +229,7 @@ fn rename_affects_fingerprint() {
 
     p.cargo("build -v")
         .with_status(101)
+        .with_stderr_contains("[..]can't find crate for `foo`")
         .run();
 }
 
@@ -240,13 +250,15 @@ fn can_run_doc_tests() {
             bar = { version = "0.1.0" }
             baz = { version = "0.2.0", package = "bar" }
         "#,
-        ).file(
+        )
+        .file(
             "src/lib.rs",
             "
             extern crate bar;
             extern crate baz;
         ",
-        ).build();
+        )
+        .build();
 
     foo.cargo("test -v")
         .with_stderr_contains(
@@ -258,7 +270,8 @@ fn can_run_doc_tests() {
         --extern baz=[CWD]/target/debug/deps/libbar-[..].rlib \
         [..]`
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -279,7 +292,8 @@ fn features_still_work() {
                 p1 = { path = 'a', features = ['b'] }
                 p2 = { path = 'b' }
             "#,
-        ).file("src/lib.rs", "")
+        )
+        .file("src/lib.rs", "")
         .file(
             "a/Cargo.toml",
             r#"
@@ -291,7 +305,8 @@ fn features_still_work() {
                 [dependencies]
                 b = { version = "0.1", package = "foo", optional = true }
             "#,
-        ).file("a/src/lib.rs", "extern crate b;")
+        )
+        .file("a/src/lib.rs", "extern crate b;")
         .file(
             "b/Cargo.toml",
             r#"
@@ -306,7 +321,8 @@ fn features_still_work() {
                 [features]
                 default = ['b']
             "#,
-        ).file("b/src/lib.rs", "extern crate b;")
+        )
+        .file("b/src/lib.rs", "extern crate b;")
         .build();
 
     p.cargo("build -v").run();
@@ -332,7 +348,8 @@ fn features_not_working() {
                 [features]
                 default = ['p1']
             "#,
-        ).file("src/lib.rs", "")
+        )
+        .file("src/lib.rs", "")
         .file("a/Cargo.toml", &basic_manifest("p1", "0.1.0"))
         .build();
 
@@ -345,7 +362,8 @@ error: failed to parse manifest at `[..]`
 Caused by:
   Feature `default` includes `p1` which is neither a dependency nor another feature
 ",
-        ).run();
+        )
+        .run();
 }
 
 #[test]
@@ -367,6 +385,5 @@ fn rename_with_dash() {
         .file("a/src/lib.rs", "")
         .build();
 
-    p.cargo("build")
-        .run();
+    p.cargo("build").run();
 }

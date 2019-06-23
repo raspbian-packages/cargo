@@ -8,34 +8,34 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bytesize::ByteSize;
-use curl;
 use curl::easy::{Easy, HttpVersion};
 use curl::multi::{EasyHandle, Multi};
-use curl_sys;
 use failure::ResultExt;
 use lazycell::LazyCell;
+use log::{debug, warn};
 use semver::Version;
 use serde::ser;
-use toml;
+use serde::Serialize;
 
-use core::interning::InternedString;
-use core::source::MaybePackage;
-use core::{Dependency, Manifest, PackageId, SourceId, Target};
-use core::{FeatureMap, SourceMap, Summary};
-use ops;
-use util::errors::{CargoResult, CargoResultExt, HttpNot200};
-use util::network::Retry;
-use util::{self, internal, lev_distance, Config, Progress, ProgressStyle};
+use crate::core::interning::InternedString;
+use crate::core::source::MaybePackage;
+use crate::core::{Dependency, Manifest, PackageId, SourceId, Target};
+use crate::core::{FeatureMap, SourceMap, Summary};
+use crate::ops;
+use crate::util::errors::{CargoResult, CargoResultExt, HttpNot200};
+use crate::util::network::Retry;
+use crate::util::{self, internal, lev_distance, Config, Progress, ProgressStyle};
 
 /// Information about a package that is available somewhere in the file system.
 ///
 /// A package is a `Cargo.toml` file plus all the files that are part of it.
-// TODO: Is manifest_path a relic?
+//
+// TODO: is `manifest_path` a relic?
 #[derive(Clone)]
 pub struct Package {
-    /// The package's manifest
+    /// The package's manifest.
     manifest: Manifest,
-    /// The root of the package
+    /// The root of the package.
     manifest_path: PathBuf,
 }
 
@@ -55,7 +55,7 @@ impl PartialOrd for Package {
 #[derive(Serialize)]
 struct SerializedPackage<'a> {
     name: &'a str,
-    version: &'a str,
+    version: &'a Version,
     id: PackageId,
     license: Option<&'a str>,
     license_file: Option<&'a str>,
@@ -64,7 +64,7 @@ struct SerializedPackage<'a> {
     dependencies: &'a [Dependency],
     targets: Vec<&'a Target>,
     features: &'a FeatureMap,
-    manifest_path: &'a str,
+    manifest_path: &'a Path,
     metadata: Option<&'a toml::Value>,
     authors: &'a [String],
     categories: &'a [String],
@@ -72,6 +72,7 @@ struct SerializedPackage<'a> {
     readme: Option<&'a str>,
     repository: Option<&'a str>,
     edition: &'a str,
+    links: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     metabuild: Option<&'a Vec<String>>,
 }
@@ -104,7 +105,7 @@ impl ser::Serialize for Package {
 
         SerializedPackage {
             name: &*package_id.name(),
-            version: &package_id.version().to_string(),
+            version: &package_id.version(),
             id: package_id,
             license,
             license_file,
@@ -113,7 +114,7 @@ impl ser::Serialize for Package {
             dependencies: summary.dependencies(),
             targets,
             features: summary.features(),
-            manifest_path: &self.manifest_path.display().to_string(),
+            manifest_path: &self.manifest_path,
             metadata: self.manifest.custom_metadata(),
             authors,
             categories,
@@ -121,6 +122,7 @@ impl ser::Serialize for Package {
             readme,
             repository,
             edition: &self.manifest.edition().to_string(),
+            links: self.manifest.links(),
             metabuild: self.manifest.metabuild(),
         }
         .serialize(s)
@@ -128,7 +130,7 @@ impl ser::Serialize for Package {
 }
 
 impl Package {
-    /// Create a package from a manifest and its location
+    /// Creates a package from a manifest and its location.
     pub fn new(manifest: Manifest, manifest_path: &Path) -> Package {
         Package {
             manifest,
@@ -136,52 +138,52 @@ impl Package {
         }
     }
 
-    /// Get the manifest dependencies
+    /// Gets the manifest dependencies.
     pub fn dependencies(&self) -> &[Dependency] {
         self.manifest.dependencies()
     }
-    /// Get the manifest
+    /// Gets the manifest.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
     }
-    /// Get the path to the manifest
+    /// Gets the path to the manifest.
     pub fn manifest_path(&self) -> &Path {
         &self.manifest_path
     }
-    /// Get the name of the package
+    /// Gets the name of the package.
     pub fn name(&self) -> InternedString {
         self.package_id().name()
     }
-    /// Get the PackageId object for the package (fully defines a package)
+    /// Gets the `PackageId` object for the package (fully defines a package).
     pub fn package_id(&self) -> PackageId {
         self.manifest.package_id()
     }
-    /// Get the root folder of the package
+    /// Gets the root folder of the package.
     pub fn root(&self) -> &Path {
         self.manifest_path.parent().unwrap()
     }
-    /// Get the summary for the package
+    /// Gets the summary for the package.
     pub fn summary(&self) -> &Summary {
         self.manifest.summary()
     }
-    /// Get the targets specified in the manifest
+    /// Gets the targets specified in the manifest.
     pub fn targets(&self) -> &[Target] {
         self.manifest.targets()
     }
-    /// Get the current package version
+    /// Gets the current package version.
     pub fn version(&self) -> &Version {
         self.package_id().version()
     }
-    /// Get the package authors
+    /// Gets the package authors.
     pub fn authors(&self) -> &Vec<String> {
         &self.manifest.metadata().authors
     }
-    /// Whether the package is set to publish
+    /// Returns `true` if the package is set to publish.
     pub fn publish(&self) -> &Option<Vec<String>> {
         self.manifest.publish()
     }
 
-    /// Whether the package uses a custom build script for any target
+    /// Returns `true` if the package uses a custom build script for any target.
     pub fn has_custom_build(&self) -> bool {
         self.targets().iter().any(|t| t.is_custom_build())
     }
@@ -218,7 +220,7 @@ impl Package {
              # When uploading crates to the registry Cargo will automatically\n\
              # \"normalize\" Cargo.toml files for maximal compatibility\n\
              # with all versions of Cargo and also rewrite `path` dependencies\n\
-             # to registry (e.g. crates.io) dependencies\n\
+             # to registry (e.g., crates.io) dependencies\n\
              #\n\
              # If you believe there's an error in this file please file an\n\
              # issue against the rust-lang/cargo repository. If you're\n\
@@ -233,13 +235,13 @@ impl Package {
 }
 
 impl fmt::Display for Package {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.summary().package_id())
     }
 }
 
 impl fmt::Debug for Package {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Package")
             .field("id", &self.summary().package_id())
             .field("..", &"..")
@@ -288,36 +290,36 @@ pub struct Downloads<'a, 'cfg: 'a> {
     ///
     /// Note that timeout management is done manually here instead of in libcurl
     /// because we want to apply timeouts to an entire batch of operations, not
-    /// any one particular single operatino
-    timeout: ops::HttpTimeout, // timeout configuration
+    /// any one particular single operation.
+    timeout: ops::HttpTimeout,      // timeout configuration
     updated_at: Cell<Instant>,       // last time we received bytes
     next_speed_check: Cell<Instant>, // if threshold isn't 0 by this time, error
     next_speed_check_bytes_threshold: Cell<u64>, // decremented when we receive bytes
 }
 
 struct Download<'cfg> {
-    /// Token for this download, used as the key of the `Downloads::pending` map
+    /// The token for this download, used as the key of the `Downloads::pending` map
     /// and stored in `EasyHandle` as well.
     token: usize,
 
-    /// Package that we're downloading
+    /// The package that we're downloading.
     id: PackageId,
 
-    /// Actual downloaded data, updated throughout the lifetime of this download
+    /// Actual downloaded data, updated throughout the lifetime of this download.
     data: RefCell<Vec<u8>>,
 
     /// The URL that we're downloading from, cached here for error messages and
     /// reenqueuing.
     url: String,
 
-    /// A descriptive string to print when we've finished downloading this crate
+    /// A descriptive string to print when we've finished downloading this crate.
     descriptor: String,
 
-    /// Statistics updated from the progress callback in libcurl
+    /// Statistics updated from the progress callback in libcurl.
     total: Cell<u64>,
     current: Cell<u64>,
 
-    /// The moment we started this transfer at
+    /// The moment we started this transfer at.
     start: Instant,
     timed_out: Cell<Option<String>>,
 
@@ -411,7 +413,7 @@ impl<'cfg> PackageSet<'cfg> {
         Ok(pkgs)
     }
 
-    pub fn sources(&self) -> Ref<SourceMap<'cfg>> {
+    pub fn sources(&self) -> Ref<'_, SourceMap<'cfg>> {
         self.sources.borrow()
     }
 }
@@ -427,7 +429,7 @@ macro_rules! try_old_curl {
             }
         } else {
             result.with_context(|_| {
-                format_err!("failed to enable {}, is curl not built right?", $msg)
+                failure::format_err!("failed to enable {}, is curl not built right?", $msg)
             })?;
         }
     };
@@ -460,7 +462,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
             .ok_or_else(|| internal(format!("couldn't find source for `{}`", id)))?;
         let pkg = source
             .download(id)
-            .chain_err(|| format_err!("unable to get packages from source"))?;
+            .chain_err(|| failure::format_err!("unable to get packages from source"))?;
         let (url, descriptor) = match pkg {
             MaybePackage::Ready(pkg) => {
                 debug!("{} doesn't need a download", id);
@@ -564,7 +566,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         Ok(None)
     }
 
-    /// Returns the number of crates that are still downloading
+    /// Returns the number of crates that are still downloading.
     pub fn remaining(&self) -> usize {
         self.pending.len()
     }
@@ -598,7 +600,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
                 let timed_out = &dl.timed_out;
                 let url = &dl.url;
                 dl.retry
-                    .try(|| {
+                    .r#try(|| {
                         if let Err(e) = result {
                             // If this error is "aborted by callback" then that's
                             // probably because our progress callback aborted due to
@@ -716,7 +718,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         // a few anyway.
         //
         // Here we start off by asking the `multi` handle to do some work via
-        // the `perform` method. This will actually do I/O work (nonblocking)
+        // the `perform` method. This will actually do I/O work (non-blocking)
         // and attempt to make progress. Afterwards we ask about the `messages`
         // contained in the handle which will inform us if anything has finished
         // transferring.
@@ -817,7 +819,7 @@ impl<'a, 'cfg> Downloads<'a, 'cfg> {
         true
     }
 
-    fn tick(&self, why: WhyTick) -> CargoResult<()> {
+    fn tick(&self, why: WhyTick<'_>) -> CargoResult<()> {
         let mut progress = self.progress.borrow_mut();
         let progress = progress.as_mut().unwrap();
 
@@ -874,11 +876,11 @@ impl<'a, 'cfg> Drop for Downloads<'a, 'cfg> {
         if !progress.is_enabled() {
             return;
         }
-        // If we didn't download anything, no need for a summary
+        // If we didn't download anything, no need for a summary.
         if self.downloads_finished == 0 {
             return;
         }
-        // If an error happened, let's not clutter up the output
+        // If an error happened, let's not clutter up the output.
         if !self.success {
             return;
         }
@@ -908,17 +910,17 @@ mod tls {
 
     thread_local!(static PTR: Cell<usize> = Cell::new(0));
 
-    pub(crate) fn with<R>(f: impl FnOnce(Option<&Downloads>) -> R) -> R {
+    pub(crate) fn with<R>(f: impl FnOnce(Option<&Downloads<'_, '_>>) -> R) -> R {
         let ptr = PTR.with(|p| p.get());
         if ptr == 0 {
             f(None)
         } else {
-            unsafe { f(Some(&*(ptr as *const Downloads))) }
+            unsafe { f(Some(&*(ptr as *const Downloads<'_, '_>))) }
         }
     }
 
-    pub(crate) fn set<R>(dl: &Downloads, f: impl FnOnce() -> R) -> R {
-        struct Reset<'a, T: Copy + 'a>(&'a Cell<T>, T);
+    pub(crate) fn set<R>(dl: &Downloads<'_, '_>, f: impl FnOnce() -> R) -> R {
+        struct Reset<'a, T: Copy>(&'a Cell<T>, T);
 
         impl<'a, T: Copy> Drop for Reset<'a, T> {
             fn drop(&mut self) {
@@ -928,7 +930,7 @@ mod tls {
 
         PTR.with(|p| {
             let _reset = Reset(p, p.get());
-            p.set(dl as *const Downloads as usize);
+            p.set(dl as *const Downloads<'_, '_> as usize);
             f()
         })
     }

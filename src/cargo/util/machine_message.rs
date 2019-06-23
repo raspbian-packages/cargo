@@ -1,7 +1,10 @@
-use serde::ser;
-use serde_json::{self, value::RawValue};
+use std::path::PathBuf;
 
-use core::{PackageId, Target};
+use serde::ser;
+use serde::Serialize;
+use serde_json::{self, json, value::RawValue};
+
+use crate::core::{PackageId, Target};
 
 pub trait Message: ser::Serialize {
     fn reason(&self) -> &str;
@@ -33,7 +36,8 @@ pub struct Artifact<'a> {
     pub target: &'a Target,
     pub profile: ArtifactProfile,
     pub features: Vec<String>,
-    pub filenames: Vec<String>,
+    pub filenames: Vec<PathBuf>,
+    pub executable: Option<PathBuf>,
     pub fresh: bool,
 }
 

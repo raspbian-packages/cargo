@@ -1,4 +1,4 @@
-use command_prelude::*;
+use crate::command_prelude::*;
 
 use cargo::core::{GitReference, SourceId};
 use cargo::ops;
@@ -51,7 +51,7 @@ repository with multiple crates) the `<crate>` argument is required to indicate
 which crate should be installed.
 
 Crates from crates.io can optionally specify the version they wish to install
-via the `--vers` flags, and similarly packages from git repositories can
+via the `--version` flags, and similarly packages from git repositories can
 optionally specify the branch, tag, or revision that should be installed. If a
 crate has multiple binaries, the `--bin` argument can selectively install only
 one of them, and if you'd rather install examples the `--example` argument can
@@ -63,22 +63,24 @@ enables overwriting existing binaries. Thus you can reinstall a crate with
 
 Omitting the <crate> specification entirely will
 install the crate in the current directory. That is, `install` is equivalent to
-the more explicit `install --path .`.  This behaviour is deprecated, and no
+the more explicit `install --path .`. This behaviour is deprecated, and no
 longer supported as of the Rust 2018 edition.
 
 If the source is crates.io or `--git` then by default the crate will be built
-in a temporary target directory.  To avoid this, the target directory can be
+in a temporary target directory. To avoid this, the target directory can be
 specified by setting the `CARGO_TARGET_DIR` environment variable to a relative
-path.  In particular, this can be useful for caching build artifacts on
+path. In particular, this can be useful for caching build artifacts on
 continuous integration systems.",
         )
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
+pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
     let registry = args.registry(config)?;
 
     config.reload_rooted_at_cargo_home()?;
-    let mut compile_opts = args.compile_options(config, CompileMode::Build)?;
+
+    let workspace = args.workspace(config).ok();
+    let mut compile_opts = args.compile_options(config, CompileMode::Build, workspace.as_ref())?;
 
     compile_opts.build_config.release = !args.is_present("debug");
 

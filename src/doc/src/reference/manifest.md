@@ -14,7 +14,20 @@ version = "0.1.0"    # the current version, obeying semver
 authors = ["Alice <a@example.com>", "Bob <b@example.com>"]
 ```
 
-All three of these fields are mandatory.
+#### The `name` field
+
+The package name is an identifier used to refer to the package. It is used
+when listed as a dependency in another package, and as the default name of
+inferred lib and bin targets.
+
+The name must not be empty, use only [alphanumeric] characters or `-` or `_`.
+Note that `cargo new` and `cargo init` impose some additional restrictions on
+the package name, such as enforcing that it is a valid Rust identifier and not
+a keyword. [crates.io][cratesio] imposes even more restrictions, such as
+enforcing only ASCII characters, not a reserved name, not a special Windows
+name such as "nul", is not too long, etc.
+
+[alphanumeric]: https://doc.rust-lang.org/std/primitive.char.html#method.is_alphanumeric
 
 #### The `version` field
 
@@ -31,10 +44,19 @@ Versioning](http://semver.org/), so make sure you follow some basic rules:
   traits, fields, types, functions, methods or anything else.
 * Use version numbers with three numeric parts such as 1.0.0 rather than 1.0.
 
+#### The `authors` field (optional)
+
+The `authors` field lists people or organizations that are considered the
+"authors" of the package. The exact meaning is open to interpretation — it may
+list the original or primary authors, current maintainers, or owners of the
+package. These names will be listed on the crate's page on
+[crates.io][cratesio]. An optional email address may be included within angled
+brackets at the end of each author.
+
 #### The `edition` field (optional)
 
 You can opt in to a specific Rust Edition for your package with the
-`edition` key in `Cargo.toml`.  If you don't specify the edition, it will
+`edition` key in `Cargo.toml`. If you don't specify the edition, it will
 default to 2015.
 
 ```toml
@@ -86,7 +108,7 @@ automatically link your crate to the corresponding [docs.rs][docsrs] page.
 
 Documentation links from specific hosts are blacklisted. Hosts are added
 to the blacklist if they are known to not be hosting documentation and are
-possibly of malicious intent e.g. ad tracking networks. URLs from the
+possibly of malicious intent e.g., ad tracking networks. URLs from the
 following hosts are blacklisted:
 
 * rust-ci.org
@@ -144,12 +166,22 @@ migration.
 #### The `publish`  field (optional)
 
 The `publish` field can be used to prevent a package from being published to a
-package registry (like *crates.io*) by mistake.
+package registry (like *crates.io*) by mistake, for instance to keep a package
+private in a company.
 
 ```toml
 [package]
 # ...
 publish = false
+```
+
+The value many also be an array of strings which are registry names that are
+allowed to be published to.
+
+```toml
+[package]
+# ...
+publish = ["some-registry-name"]
 ```
 
 #### The `workspace`  field (optional)
@@ -201,13 +233,13 @@ keywords = ["...", "..."]
 # they must match exactly.
 categories = ["...", "..."]
 
-# This is an SPDX 2.1 license expression for this package.  Currently
+# This is an SPDX 2.1 license expression for this package. Currently
 # crates.io will validate the license provided against a whitelist of
 # known license and exception identifiers from the SPDX license list
-# 2.4.  Parentheses are not currently supported.
+# 2.4. Parentheses are not currently supported.
 #
 # Multiple licenses can be separated with a `/`, although that usage
-# is deprecated.  Instead, use a license expression with AND and OR
+# is deprecated. Instead, use a license expression with AND and OR
 # operators to get more explicit semantics.
 license = "..."
 
@@ -219,7 +251,7 @@ license-file = "..."
 # Optional specification of badges to be displayed on crates.io.
 #
 # - The badges pertaining to build status that are currently available are
-#   Appveyor, CircleCI, GitLab, and TravisCI.
+#   Appveyor, CircleCI, GitLab, Azure DevOps and TravisCI.
 # - Available badges pertaining to code test coverage are Codecov and
 #   Coveralls.
 # - There are also maintenance-related badges based on isitmaintained.com
@@ -242,6 +274,10 @@ circle-ci = { repository = "...", branch = "master" }
 
 # GitLab: `repository` is required. `branch` is optional; default is `master`
 gitlab = { repository = "...", branch = "master" }
+
+# Azure DevOps: `project` is required. `pipeline` is required. `build` is optional; default is `1`
+# Note: project = `organization/project`, pipeline = `name_of_pipeline`, build = `definitionId`
+azure-devops = { project = "...", pipeline = "...", build="2" }
 
 # Travis CI: `repository` in format "<user>/<project>" is required.
 # `branch` is optional; default is `master`
@@ -275,7 +311,7 @@ search ranking of a crate. It is highly discouraged to omit everything in a
 published crate.
 
 SPDX 2.1 license expressions are documented
-[here][spdx-2.1-license-expressions].  The current version of the
+[here][spdx-2.1-license-expressions]. The current version of the
 license list is available [here][spdx-license-list], and version 2.4
 is available [here][spdx-license-list-2.4].
 
@@ -332,17 +368,20 @@ lto = false        # Link Time Optimization usually reduces size of binaries
                    # string is specified like 'thin' then `-C lto=thin` will
                    # be passed.
 debug-assertions = true # controls whether debug assertions are enabled
-                   # (e.g. debug_assert!() and arithmetic overflow checks)
+                   # (e.g., debug_assert!() and arithmetic overflow checks)
 codegen-units = 16 # if > 1 enables parallel code generation which improves
                    # compile times, but prevents some optimizations.
                    # Passes `-C codegen-units`.
 panic = 'unwind'   # panic strategy (`-C panic=...`), can also be 'abort'
 incremental = true # whether or not incremental compilation is enabled
+                   # This can be overridden globally with the CARGO_INCREMENTAL
+                   # environment variable or `build.incremental` config
+                   # variable. Incremental is only used for path sources.
 overflow-checks = true # use overflow checks for integer arithmetic.
                    # Passes the `-C overflow-checks=...` flag to the compiler.
 
 # The release profile, used for `cargo build --release` (and the dependencies
-# for `cargo test --release`,  including the local library or binary).
+# for `cargo test --release`, including the local library or binary).
 [profile.release]
 opt-level = 3
 debug = false
@@ -531,7 +570,7 @@ properties:
 * The *root crate*'s `Cargo.toml` contains the `[workspace]` table, but is not
   required to have other configuration.
 * Whenever any crate in the workspace is compiled, output is placed in the
-  *workspace root*. i.e. next to the *root crate*'s `Cargo.toml`.
+  *workspace root* (i.e., next to the *root crate*'s `Cargo.toml`).
 * The lock file for all crates in the workspace resides in the *workspace root*.
 * The `[patch]`, `[replace]` and `[profile.*]` sections in `Cargo.toml`
   are only recognized
@@ -599,7 +638,7 @@ inside `src/bin` containing a `main.rs` file which will be treated as an executa
 with a name of the parent directory.
 Do note, however, once you add a `[[bin]]` section ([see
 below](#configuring-a-target)), Cargo will no longer automatically build files
-located in `src/bin/*.rs`.  Instead you must create a `[[bin]]` section for
+located in `src/bin/*.rs`. Instead you must create a `[[bin]]` section for
 each file you want to build.
 
 Your package can optionally contain folders named `examples`, `tests`, and
@@ -741,6 +780,12 @@ harness = true
 # 2018 edition or only compiling one unit test with the 2015 edition. By default
 # all targets are compiled with the edition specified in `[package]`.
 edition = '2015'
+
+# Here's an example of a TOML "array of tables" section, in this case specifying
+# a binary target name and path.
+[[bin]]
+name = "my-cool-binary"
+path = "src/my-cool-binary.rs"
 ```
 
 The `[package]` also includes the optional `autobins`, `autoexamples`,
@@ -780,9 +825,7 @@ crate-type = ["dylib"] # could be `staticlib` as well
 ```
 
 The available options are `dylib`, `rlib`, `staticlib`, `cdylib`, and
-`proc-macro`. You should only use this option in a package. Cargo will always
-compile packages (dependencies) based on the requirements of the package that
-includes them.
+`proc-macro`.
 
 You can read more about the different crate types in the
 [Rust Reference Manual](https://doc.rust-lang.org/reference/linkage.html)
@@ -805,11 +848,10 @@ baz = { git = 'https://github.com/example/patched-baz', branch = 'my-branch' }
 ```
 
 The `[patch]` table is made of dependency-like sub-tables. Each key after
-`[patch]` is a URL of the source that's being patched, or `crates-io` if
-you're modifying the https://crates.io registry. In the example above
-`crates-io` could be replaced with a git URL such as
-`https://github.com/rust-lang-nursery/log`; the second `[patch]`
-section in the example uses this to specify a source called `baz`.
+`[patch]` is a URL of the source that is being patched, or the name of a
+registry. The name `crates-io` may be used to override the default registry
+[crates.io]. The first `[patch]` in the example above demonstrates overriding
+[crates.io], and the second `[patch]` demonstrates overriding a git source.
 
 Each entry in these tables is a normal dependency specification, the same as
 found in the `[dependencies]` section of the manifest. The dependencies listed
@@ -829,6 +871,7 @@ dependencies][replace] section of the documentation and [RFC 1969] for the
 technical specification of this feature.
 
 [RFC 1969]: https://github.com/rust-lang/rfcs/pull/1969
+[crates.io]: https://crates.io/
 [replace]: reference/specifying-dependencies.html#overriding-dependencies
 
 ### The `[replace]` Section
@@ -842,13 +885,13 @@ other copies. The syntax is similar to the `[dependencies]` section:
 "bar:1.0.2" = { path = 'my/local/bar' }
 ```
 
-Each key in the `[replace]` table is a [package id
-specification](reference/pkgid-spec.html) which allows arbitrarily choosing a node in the
+Each key in the `[replace]` table is a [package ID
+specification](reference/pkgid-spec.html), which allows arbitrarily choosing a node in the
 dependency graph to override. The value of each key is the same as the
 `[dependencies]` syntax for specifying dependencies, except that you can't
 specify features. Note that when a crate is overridden the copy it's overridden
 with must have both the same name and version, but it can come from a different
-source (e.g. git or a local path).
+source (e.g., git or a local path).
 
 More information about overriding dependencies can be found in the [overriding
 dependencies][replace] section of the documentation.

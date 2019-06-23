@@ -25,16 +25,16 @@ use std::hash::{BuildHasher, Hash, Hasher};
 use std::iter::{FromIterator, IntoIterator, Sum};
 use std::ops::{Add, Deref, Mul, RangeBounds};
 
-use hashset::HashSet;
-use nodes::btree::{
-    BTreeValue, ConsumingIter as ConsumingNodeIter, DiffItem as NodeDiffItem,
-    DiffIter as NodeDiffIter, Insert, Iter as NodeIter, Node, Remove,
+use crate::hashset::HashSet;
+use crate::nodes::btree::{
+    BTreeValue, ConsumingIter as ConsumingNodeIter, DiffIter as NodeDiffIter, Insert,
+    Iter as NodeIter, Node, Remove,
 };
 #[cfg(has_specialisation)]
-use util::linear_search_by;
-use util::Ref;
+use crate::util::linear_search_by;
+use crate::util::Ref;
 
-pub type DiffItem<'a, A> = NodeDiffItem<'a, A>;
+pub use crate::nodes::btree::DiffItem;
 
 /// Construct a set from a sequence of values.
 ///
@@ -76,7 +76,7 @@ impl<A> Deref for Value<A> {
 // FIXME lacking specialisation, we can't simply implement `BTreeValue`
 // for `A`, we have to use the `Value<A>` indirection.
 #[cfg(not(has_specialisation))]
-impl<A: Ord + Clone> BTreeValue for Value<A> {
+impl<A: Ord> BTreeValue for Value<A> {
     type Key = A;
 
     fn ptr_eq(&self, _other: &Self) -> bool {
@@ -109,7 +109,7 @@ impl<A: Ord + Clone> BTreeValue for Value<A> {
 }
 
 #[cfg(has_specialisation)]
-impl<A: Ord + Clone> BTreeValue for Value<A> {
+impl<A: Ord> BTreeValue for Value<A> {
     type Key = A;
 
     fn ptr_eq(&self, _other: &Self) -> bool {
@@ -142,7 +142,7 @@ impl<A: Ord + Clone> BTreeValue for Value<A> {
 }
 
 #[cfg(has_specialisation)]
-impl<A: Ord + Clone + Copy> BTreeValue for Value<A> {
+impl<A: Ord + Copy> BTreeValue for Value<A> {
     fn search_key<BK>(slice: &[Self], key: &BK) -> Result<usize, usize>
     where
         BK: Ord + ?Sized,
@@ -175,10 +175,7 @@ pub struct OrdSet<A> {
     root: Ref<Node<Value<A>>>,
 }
 
-impl<A> OrdSet<A>
-where
-    A: Ord + Clone,
-{
+impl<A> OrdSet<A> {
     /// Construct an empty set.
     #[must_use]
     pub fn new() -> Self {
@@ -264,6 +261,36 @@ where
         self.size
     }
 
+    /// Discard all elements from the set.
+    ///
+    /// This leaves you with an empty set, and all elements that
+    /// were previously inside it are dropped.
+    ///
+    /// Time: O(n)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[macro_use] extern crate im_rc as im;
+    /// # use im::OrdSet;
+    /// # fn main() {
+    /// let mut set = ordset![1, 2, 3];
+    /// set.clear();
+    /// assert!(set.is_empty());
+    /// # }
+    /// ```
+    pub fn clear(&mut self) {
+        if !self.is_empty() {
+            self.root = Default::default();
+            self.size = 0;
+        }
+    }
+}
+
+impl<A> OrdSet<A>
+where
+    A: Ord,
+{
     /// Get the smallest value in a set.
     ///
     /// If the set is empty, returns `None`.
@@ -344,6 +371,37 @@ where
         self.root.lookup(a).is_some()
     }
 
+    /// Test whether a set is a subset of another set, meaning that
+    /// all values in our set must also be in the other set.
+    ///
+    /// Time: O(n log n)
+    #[must_use]
+    pub fn is_subset<RS>(&self, other: RS) -> bool
+    where
+        RS: Borrow<Self>,
+    {
+        let o = other.borrow();
+        self.iter().all(|a| o.contains(&a))
+    }
+
+    /// Test whether a set is a proper subset of another set, meaning
+    /// that all values in our set must also be in the other set. A
+    /// proper subset must also be smaller than the other set.
+    ///
+    /// Time: O(n log n)
+    #[must_use]
+    pub fn is_proper_subset<RS>(&self, other: RS) -> bool
+    where
+        RS: Borrow<Self>,
+    {
+        self.len() != other.borrow().len() && self.is_subset(other)
+    }
+}
+
+impl<A> OrdSet<A>
+where
+    A: Ord + Clone,
+{
     /// Insert a value into a set.
     ///
     /// Time: O(log n)
@@ -433,31 +491,6 @@ where
         }
         .clone();
         self.remove(&key)
-    }
-
-    /// Discard all elements from the set.
-    ///
-    /// This leaves you with an empty set, and all elements that
-    /// were previously inside it are dropped.
-    ///
-    /// Time: O(n)
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # #[macro_use] extern crate im_rc as im;
-    /// # use im::OrdSet;
-    /// # fn main() {
-    /// let mut set = ordset![1, 2, 3];
-    /// set.clear();
-    /// assert!(set.is_empty());
-    /// # }
-    /// ```
-    pub fn clear(&mut self) {
-        if !self.is_empty() {
-            self.root = Default::default();
-            self.size = 0;
-        }
     }
 
     /// Construct a new set from the current set with the given value
@@ -556,7 +589,7 @@ where
     where
         I: IntoIterator<Item = Self>,
     {
-        i.into_iter().fold(Self::default(), |a, b| a.union(b))
+        i.into_iter().fold(Self::default(), Self::union)
     }
 
     /// Construct the difference between two sets.
@@ -610,32 +643,6 @@ where
             }
         }
         out
-    }
-
-    /// Test whether a set is a subset of another set, meaning that
-    /// all values in our set must also be in the other set.
-    ///
-    /// Time: O(n log n)
-    #[must_use]
-    pub fn is_subset<RS>(&self, other: RS) -> bool
-    where
-        RS: Borrow<Self>,
-    {
-        let o = other.borrow();
-        self.iter().all(|a| o.contains(&a))
-    }
-
-    /// Test whether a set is a proper subset of another set, meaning
-    /// that all values in our set must also be in the other set. A
-    /// proper subset must also be smaller than the other set.
-    ///
-    /// Time: O(n log n)
-    #[must_use]
-    pub fn is_proper_subset<RS>(&self, other: RS) -> bool
-    where
-        RS: Borrow<Self>,
-    {
-        self.len() != other.borrow().len() && self.is_subset(other)
     }
 
     /// Split a set into two, with the left hand set containing values
@@ -719,28 +726,28 @@ impl<A> Clone for OrdSet<A> {
     }
 }
 
-impl<A: Ord + Clone> PartialEq for OrdSet<A> {
+impl<A: Ord> PartialEq for OrdSet<A> {
     fn eq(&self, other: &Self) -> bool {
         Ref::ptr_eq(&self.root, &other.root)
             || (self.len() == other.len() && self.diff(other).next().is_none())
     }
 }
 
-impl<A: Ord + Eq + Clone> Eq for OrdSet<A> {}
+impl<A: Ord + Eq> Eq for OrdSet<A> {}
 
-impl<A: Ord + Clone> PartialOrd for OrdSet<A> {
+impl<A: Ord> PartialOrd for OrdSet<A> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.iter().partial_cmp(other.iter())
     }
 }
 
-impl<A: Ord + Clone> Ord for OrdSet<A> {
+impl<A: Ord> Ord for OrdSet<A> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.iter().cmp(other.iter())
     }
 }
 
-impl<A: Ord + Clone + Hash> Hash for OrdSet<A> {
+impl<A: Ord + Hash> Hash for OrdSet<A> {
     fn hash<H>(&self, state: &mut H)
     where
         H: Hasher,
@@ -751,10 +758,7 @@ impl<A: Ord + Clone + Hash> Hash for OrdSet<A> {
     }
 }
 
-impl<A> Default for OrdSet<A>
-where
-    A: Ord + Clone,
-{
+impl<A> Default for OrdSet<A> {
     fn default() -> Self {
         OrdSet::new()
     }
@@ -815,7 +819,7 @@ where
     }
 }
 
-impl<A: Ord + Clone + Debug> Debug for OrdSet<A> {
+impl<A: Ord + Debug> Debug for OrdSet<A> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         f.debug_set().entries(self.iter()).finish()
     }
@@ -833,7 +837,7 @@ where
 
 impl<'a, A> Iterator for Iter<'a, A>
 where
-    A: 'a + Ord + Clone,
+    A: 'a + Ord,
 {
     type Item = &'a A;
 
@@ -848,14 +852,14 @@ where
 
 impl<'a, A> DoubleEndedIterator for Iter<'a, A>
 where
-    A: 'a + Ord + Clone,
+    A: 'a + Ord,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(Deref::deref)
     }
 }
 
-impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a + Ord + Clone {}
+impl<'a, A> ExactSizeIterator for Iter<'a, A> where A: 'a + Ord {}
 
 // A ranged iterator over the elements of a set.
 //
@@ -871,7 +875,7 @@ where
 
 impl<'a, A> Iterator for RangedIter<'a, A>
 where
-    A: 'a + Ord + Clone,
+    A: 'a + Ord,
 {
     type Item = &'a A;
 
@@ -886,7 +890,7 @@ where
 
 impl<'a, A> DoubleEndedIterator for RangedIter<'a, A>
 where
-    A: 'a + Ord + Clone,
+    A: 'a + Ord,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
         self.it.next_back().map(Deref::deref)
@@ -916,18 +920,18 @@ pub struct DiffIter<'a, A: 'a> {
 
 impl<'a, A> Iterator for DiffIter<'a, A>
 where
-    A: 'a + Ord + Clone + PartialEq,
+    A: 'a + Ord + PartialEq,
 {
     type Item = DiffItem<'a, A>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.it.next().map(|item| match item {
-            NodeDiffItem::Add(v) => NodeDiffItem::Add(v.deref()),
-            NodeDiffItem::Update { old, new } => NodeDiffItem::Update {
+            DiffItem::Add(v) => DiffItem::Add(v.deref()),
+            DiffItem::Update { old, new } => DiffItem::Update {
                 old: old.deref(),
                 new: new.deref(),
             },
-            NodeDiffItem::Remove(v) => NodeDiffItem::Remove(v.deref()),
+            DiffItem::Remove(v) => DiffItem::Remove(v.deref()),
         })
     }
 }
@@ -950,7 +954,7 @@ where
 
 impl<'a, A> IntoIterator for &'a OrdSet<A>
 where
-    A: 'a + Ord + Clone,
+    A: 'a + Ord,
 {
     type Item = &'a A;
     type IntoIter = Iter<'a, A>;
@@ -1060,7 +1064,7 @@ impl<A: Ord + Clone + Arbitrary + Sync> Arbitrary for OrdSet<A> {
 #[cfg(any(test, feature = "proptest"))]
 pub mod proptest {
     use super::*;
-    use proptest::strategy::{BoxedStrategy, Strategy, ValueTree};
+    use ::proptest::strategy::{BoxedStrategy, Strategy, ValueTree};
     use std::ops::Range;
 
     /// A strategy for a set of a given size.
@@ -1096,6 +1100,7 @@ pub mod proptest {
 mod test {
     use super::proptest::*;
     use super::*;
+    use ::proptest::proptest;
 
     #[test]
     fn match_strings_with_string_slices() {

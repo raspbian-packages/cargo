@@ -1,20 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use log::{debug, trace};
 use semver::VersionReq;
 use url::Url;
 
-use core::PackageSet;
-use core::{Dependency, PackageId, Source, SourceId, SourceMap, Summary};
-use sources::config::SourceConfigMap;
-use util::errors::{CargoResult, CargoResultExt};
-use util::{profile, Config};
+use crate::core::PackageSet;
+use crate::core::{Dependency, PackageId, Source, SourceId, SourceMap, Summary};
+use crate::sources::config::SourceConfigMap;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{profile, Config};
 
 /// Source of information about a group of packages.
 ///
 /// See also `core::Source`.
 pub trait Registry {
     /// Attempt to find the packages that match a dependency request.
-    fn query(&mut self, dep: &Dependency, f: &mut FnMut(Summary), fuzzy: bool) -> CargoResult<()>;
+    fn query(
+        &mut self,
+        dep: &Dependency,
+        f: &mut dyn FnMut(Summary),
+        fuzzy: bool,
+    ) -> CargoResult<()>;
 
     fn query_vec(&mut self, dep: &Dependency, fuzzy: bool) -> CargoResult<Vec<Summary>> {
         let mut ret = Vec::new();
@@ -32,7 +38,7 @@ pub trait Registry {
 ///
 /// The resolution phase of Cargo uses this to drive knowledge about new
 /// packages as well as querying for lists of new packages. It is here that
-/// sources are updated (e.g. network operations) and overrides are
+/// sources are updated (e.g., network operations) and overrides are
 /// handled.
 ///
 /// The general idea behind this registry is that it is centered around the
@@ -65,6 +71,7 @@ pub struct PackageRegistry<'cfg> {
     source_ids: HashMap<SourceId, (SourceId, Kind)>,
 
     locked: LockedMap,
+    yanked_whitelist: HashSet<PackageId>,
     source_config: SourceConfigMap<'cfg>,
 
     patches: HashMap<Url, Vec<Summary>>,
@@ -91,6 +98,7 @@ impl<'cfg> PackageRegistry<'cfg> {
             overrides: Vec::new(),
             source_config,
             locked: HashMap::new(),
+            yanked_whitelist: HashSet::new(),
             patches: HashMap::new(),
             patches_locked: false,
             patches_available: HashMap::new(),
@@ -145,19 +153,27 @@ impl<'cfg> PackageRegistry<'cfg> {
         Ok(())
     }
 
-    pub fn add_preloaded(&mut self, source: Box<Source + 'cfg>) {
+    pub fn add_preloaded(&mut self, source: Box<dyn Source + 'cfg>) {
         self.add_source(source, Kind::Locked);
     }
 
-    fn add_source(&mut self, source: Box<Source + 'cfg>, kind: Kind) {
+    fn add_source(&mut self, source: Box<dyn Source + 'cfg>, kind: Kind) {
         let id = source.source_id();
         self.sources.insert(source);
         self.source_ids.insert(id, (id, kind));
     }
 
-    pub fn add_override(&mut self, source: Box<Source + 'cfg>) {
+    pub fn add_override(&mut self, source: Box<dyn Source + 'cfg>) {
         self.overrides.push(source.source_id());
         self.add_source(source, Kind::Override);
+    }
+
+    pub fn add_to_yanked_whitelist(&mut self, iter: impl Iterator<Item = PackageId>) {
+        let pkgs = iter.collect::<Vec<_>>();
+        for (_, source) in self.sources.sources_mut() {
+            source.add_to_yanked_whitelist(&pkgs);
+        }
+        self.yanked_whitelist.extend(pkgs);
     }
 
     pub fn register_lock(&mut self, id: PackageId, deps: Vec<PackageId>) {
@@ -185,7 +201,7 @@ impl<'cfg> PackageRegistry<'cfg> {
     ///
     /// Here the `deps` will be resolved to a precise version and stored
     /// internally for future calls to `query` below. It's expected that `deps`
-    /// have had `lock_to` call already, if applicable. (e.g. if a lock file was
+    /// have had `lock_to` call already, if applicable. (e.g., if a lock file was
     /// already present).
     ///
     /// Note that the patch list specified here *will not* be available to
@@ -215,7 +231,7 @@ impl<'cfg> PackageRegistry<'cfg> {
                 // corresponding to this `dep`.
                 self.ensure_loaded(dep.source_id(), Kind::Normal)
                     .chain_err(|| {
-                        format_err!(
+                        failure::format_err!(
                             "failed to load source for a dependency \
                              on `{}`",
                             dep.package_name()
@@ -231,7 +247,7 @@ impl<'cfg> PackageRegistry<'cfg> {
 
                 let summary = match summaries.next() {
                     Some(summary) => summary,
-                    None => bail!(
+                    None => failure::bail!(
                         "patch for `{}` in `{}` did not resolve to any crates. If this is \
                          unexpected, you may wish to consult: \
                          https://github.com/rust-lang/cargo/issues/4678",
@@ -240,14 +256,14 @@ impl<'cfg> PackageRegistry<'cfg> {
                     ),
                 };
                 if summaries.next().is_some() {
-                    bail!(
+                    failure::bail!(
                         "patch for `{}` in `{}` resolved to more than one candidate",
                         dep.package_name(),
                         url
                     )
                 }
                 if summary.package_id().source_id().url() == url {
-                    bail!(
+                    failure::bail!(
                         "patch for `{}` in `{}` points to the same source, but \
                          patches must point to different sources",
                         dep.package_name(),
@@ -257,7 +273,7 @@ impl<'cfg> PackageRegistry<'cfg> {
                 Ok(summary)
             })
             .collect::<CargoResult<Vec<_>>>()
-            .chain_err(|| format_err!("failed to resolve patches for `{}`", url))?;
+            .chain_err(|| failure::format_err!("failed to resolve patches for `{}`", url))?;
 
         // Note that we do not use `lock` here to lock summaries! That step
         // happens later once `lock_patches` is invoked. In the meantime though
@@ -295,7 +311,7 @@ impl<'cfg> PackageRegistry<'cfg> {
     fn load(&mut self, source_id: SourceId, kind: Kind) -> CargoResult<()> {
         (|| {
             debug!("loading source {}", source_id);
-            let source = self.source_config.load(source_id)?;
+            let source = self.source_config.load(source_id, &self.yanked_whitelist)?;
             assert_eq!(source.source_id(), source_id);
 
             if kind == Kind::Override {
@@ -307,7 +323,7 @@ impl<'cfg> PackageRegistry<'cfg> {
             let _p = profile::start(format!("updating: {}", source_id));
             self.sources.get_mut(source_id).unwrap().update()
         })()
-        .chain_err(|| format_err!("Unable to update {}", source_id))?;
+        .chain_err(|| failure::format_err!("Unable to update {}", source_id))?;
         Ok(())
     }
 
@@ -324,16 +340,16 @@ impl<'cfg> PackageRegistry<'cfg> {
     }
 
     /// This function is used to transform a summary to another locked summary
-    /// if possible. This is where the concept of a lockfile comes into play.
+    /// if possible. This is where the concept of a lock file comes into play.
     ///
-    /// If a summary points at a package id which was previously locked, then we
-    /// override the summary's id itself, as well as all dependencies, to be
+    /// If a summary points at a package ID which was previously locked, then we
+    /// override the summary's ID itself, as well as all dependencies, to be
     /// rewritten to the locked versions. This will transform the summary's
     /// source to a precise source (listed in the locked version) as well as
     /// transforming all of the dependencies from range requirements on
     /// imprecise sources to exact requirements on precise sources.
     ///
-    /// If a summary does not point at a package id which was previously locked,
+    /// If a summary does not point at a package ID which was previously locked,
     /// or if any dependencies were added and don't have a previously listed
     /// version, we still want to avoid updating as many dependencies as
     /// possible to keep the graph stable. In this case we map all of the
@@ -403,7 +419,12 @@ https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#overridin
 }
 
 impl<'cfg> Registry for PackageRegistry<'cfg> {
-    fn query(&mut self, dep: &Dependency, f: &mut FnMut(Summary), fuzzy: bool) -> CargoResult<()> {
+    fn query(
+        &mut self,
+        dep: &Dependency,
+        f: &mut dyn FnMut(Summary),
+        fuzzy: bool,
+    ) -> CargoResult<()> {
         assert!(self.patches_locked);
         let (override_summary, n, to_warn) = {
             // Look for an override and get ready to query the real source.
@@ -456,7 +477,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
                 // Ensure the requested source_id is loaded
                 self.ensure_loaded(dep.source_id(), Kind::Normal)
                     .chain_err(|| {
-                        format_err!(
+                        failure::format_err!(
                             "failed to load source for a dependency \
                              on `{}`",
                             dep.package_name()
@@ -465,7 +486,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
 
                 let source = self.sources.get_mut(dep.source_id());
                 match (override_summary, source) {
-                    (Some(_), None) => bail!("override found but no real ones"),
+                    (Some(_), None) => failure::bail!("override found but no real ones"),
                     (None, None) => return Ok(()),
 
                     // If we don't have an override then we just ship
@@ -505,7 +526,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
                     // the summaries it gives us though.
                     (Some(override_summary), Some(source)) => {
                         if !patches.is_empty() {
-                            bail!("found patches and a path override")
+                            failure::bail!("found patches and a path override")
                         }
                         let mut n = 0;
                         let mut to_warn = None;
@@ -527,7 +548,7 @@ impl<'cfg> Registry for PackageRegistry<'cfg> {
         };
 
         if n > 1 {
-            bail!("found an override with a non-locked list");
+            failure::bail!("found an override with a non-locked list");
         } else if let Some(summary) = to_warn {
             self.warn_bad_override(&override_summary, &summary)?;
         }
@@ -558,7 +579,7 @@ fn lock(locked: &LockedMap, patches: &HashMap<Url, Vec<PackageId>>, summary: Sum
 
     trace!("locking summary of {}", summary.package_id());
 
-    // Lock the summary's id if possible
+    // Lock the summary's ID if possible
     let summary = match pair {
         Some(&(ref precise, _)) => summary.override_id(precise.clone()),
         None => summary,
@@ -576,7 +597,7 @@ fn lock(locked: &LockedMap, patches: &HashMap<Url, Vec<PackageId>>, summary: Sum
         //
         // 1. We have a lock entry for this dependency from the same
         //    source as it's listed as coming from. In this case we make
-        //    sure to lock to precisely the given package id.
+        //    sure to lock to precisely the given package ID.
         //
         // 2. We have a lock entry for this dependency, but it's from a
         //    different source than what's listed, or the version
@@ -594,7 +615,7 @@ fn lock(locked: &LockedMap, patches: &HashMap<Url, Vec<PackageId>>, summary: Sum
             let locked = locked_deps.iter().find(|&&id| dep.matches_id(id));
             if let Some(&locked) = locked {
                 trace!("\tfirst hit on {}", locked);
-                let mut dep = dep.clone();
+                let mut dep = dep;
                 dep.lock_to(locked);
                 return dep;
             }
@@ -609,7 +630,7 @@ fn lock(locked: &LockedMap, patches: &HashMap<Url, Vec<PackageId>>, summary: Sum
             .and_then(|vec| vec.iter().find(|&&(id, _)| dep.matches_id(id)));
         if let Some(&(id, _)) = v {
             trace!("\tsecond hit on {}", id);
-            let mut dep = dep.clone();
+            let mut dep = dep;
             dep.lock_to(id);
             return dep;
         }
@@ -635,7 +656,7 @@ fn lock(locked: &LockedMap, patches: &HashMap<Url, Vec<PackageId>>, summary: Sum
             if patch_locked {
                 trace!("\tthird hit on {}", patch_id);
                 let req = VersionReq::exact(patch_id.version());
-                let mut dep = dep.clone();
+                let mut dep = dep;
                 dep.set_version_req(req);
                 return dep;
             }

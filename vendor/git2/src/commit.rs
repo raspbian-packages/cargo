@@ -17,12 +17,16 @@ pub struct Commit<'repo> {
 }
 
 /// An iterator over the parent commits of a commit.
+///
+/// Aborts iteration when a commit cannot be found
 pub struct Parents<'commit, 'repo: 'commit> {
     range: Range<usize>,
     commit: &'commit Commit<'repo>,
 }
 
 /// An iterator over the parent commits' ids of a commit.
+///
+/// Aborts iteration when a commit cannot be found
 pub struct ParentIds<'commit> {
     range: Range<usize>,
     commit: &'commit Commit<'commit>,
@@ -79,9 +83,9 @@ impl<'repo> Commit<'repo> {
     /// `None` will be returned if the encoding is not known
     pub fn message_encoding(&self) -> Option<&str> {
         let bytes = unsafe {
-            ::opt_bytes(self, raw::git_commit_message(&*self.raw))
+            ::opt_bytes(self, raw::git_commit_message_encoding(&*self.raw))
         };
-        bytes.map(|b| str::from_utf8(b).unwrap())
+        bytes.and_then(|b| str::from_utf8(b).ok())
     }
 
     /// Get the full raw message of a commit.
@@ -147,14 +151,12 @@ impl<'repo> Commit<'repo> {
 
     /// Creates a new iterator over the parents of this commit.
     pub fn parents<'a>(&'a self) -> Parents<'a, 'repo> {
-        let max = unsafe { raw::git_commit_parentcount(&*self.raw) as usize };
-        Parents { range: 0..max, commit: self }
+        Parents { range: 0..self.parent_count(), commit: self }
     }
 
     /// Creates a new iterator over the parents of this commit.
     pub fn parent_ids(&self) -> ParentIds {
-        let max = unsafe { raw::git_commit_parentcount(&*self.raw) as usize };
-        ParentIds { range: 0..max, commit: self }
+        ParentIds { range: 0..self.parent_count(), commit: self }
     }
 
     /// Get the author of this commit.
@@ -204,6 +206,13 @@ impl<'repo> Commit<'repo> {
                                             tree.map(|t| t.raw())));
             Ok(Binding::from_raw(&raw as *const _))
         }
+    }
+
+    /// Get the number of parents of this commit.
+    ///
+    /// Use the `parents` iterator to return an iterator over all parents.
+    pub fn parent_count(&self) -> usize {
+        unsafe { raw::git_commit_parentcount(&*self.raw) as usize }
     }
 
     /// Get the specified parent of the commit.
@@ -273,33 +282,37 @@ impl<'repo> ::std::fmt::Debug for Commit<'repo> {
     }
 }
 
+/// Aborts iteration when a commit cannot be found
 impl<'repo, 'commit> Iterator for Parents<'commit, 'repo> {
     type Item = Commit<'repo>;
     fn next(&mut self) -> Option<Commit<'repo>> {
-        self.range.next().map(|i| self.commit.parent(i).unwrap())
+        self.range.next().and_then(|i| self.commit.parent(i).ok())
     }
     fn size_hint(&self) -> (usize, Option<usize>) { self.range.size_hint() }
 }
 
+/// Aborts iteration when a commit cannot be found
 impl<'repo, 'commit> DoubleEndedIterator for Parents<'commit, 'repo> {
     fn next_back(&mut self) -> Option<Commit<'repo>> {
-        self.range.next_back().map(|i| self.commit.parent(i).unwrap())
+        self.range.next_back().and_then(|i| self.commit.parent(i).ok())
     }
 }
 
 impl<'repo, 'commit> ExactSizeIterator for Parents<'commit, 'repo> {}
 
+/// Aborts iteration when a commit cannot be found
 impl<'commit> Iterator for ParentIds<'commit> {
     type Item = Oid;
     fn next(&mut self) -> Option<Oid> {
-        self.range.next().map(|i| self.commit.parent_id(i).unwrap())
+        self.range.next().and_then(|i| self.commit.parent_id(i).ok())
     }
     fn size_hint(&self) -> (usize, Option<usize>) { self.range.size_hint() }
 }
 
+/// Aborts iteration when a commit cannot be found
 impl<'commit> DoubleEndedIterator for ParentIds<'commit> {
     fn next_back(&mut self) -> Option<Oid> {
-        self.range.next_back().map(|i| self.commit.parent_id(i).unwrap())
+        self.range.next_back().and_then(|i| self.commit.parent_id(i).ok())
     }
 }
 

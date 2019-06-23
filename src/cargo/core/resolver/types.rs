@@ -4,10 +4,12 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use core::interning::InternedString;
-use core::{Dependency, PackageId, PackageIdSpec, Registry, Summary};
-use util::errors::CargoResult;
-use util::Config;
+use log::debug;
+
+use crate::core::interning::InternedString;
+use crate::core::{Dependency, PackageId, PackageIdSpec, Registry, Summary};
+use crate::util::errors::CargoResult;
+use crate::util::Config;
 
 use im_rc;
 
@@ -17,6 +19,8 @@ pub struct ResolverProgress {
     time_to_print: Duration,
     printed: bool,
     deps_time: Duration,
+    #[cfg(debug_assertions)]
+    slow_cpu_multiplier: u64,
 }
 
 impl ResolverProgress {
@@ -27,6 +31,14 @@ impl ResolverProgress {
             time_to_print: Duration::from_millis(500),
             printed: false,
             deps_time: Duration::new(0, 0),
+            // Some CI setups are much slower then the equipment used by Cargo itself.
+            // Architectures that do not have a modern processor, hardware emulation, ect.
+            // In the test code we have `slow_cpu_multiplier`, but that is not accessible here.
+            #[cfg(debug_assertions)]
+            slow_cpu_multiplier: std::env::var("CARGO_TEST_SLOW_CPU_MULTIPLIER")
+                .ok()
+                .and_then(|m| m.parse().ok())
+                .unwrap_or(1),
         }
     }
     pub fn shell_status(&mut self, config: Option<&Config>) -> CargoResult<()> {
@@ -50,21 +62,27 @@ impl ResolverProgress {
                 config.shell().status("Resolving", "dependency graph...")?;
             }
         }
-        // The largest test in our suite takes less then 5000 ticks
-        // with all the algorithm improvements.
-        // If any of them are removed then it takes more than I am willing to measure.
-        // So lets fail the test fast if we have ben running for two long.
-        debug_assert!(
-            self.ticks < 50_000,
-            "got to 50_000 ticks in {:?}",
-            self.start.elapsed()
-        );
-        // The largest test in our suite takes less then 30 sec
-        // with all the improvements to how fast a tick can go.
-        // If any of them are removed then it takes more than I am willing to measure.
-        // So lets fail the test fast if we have ben running for two long.
-        if cfg!(debug_assertions) && (self.ticks % 1000 == 0) {
-            assert!(self.start.elapsed() - self.deps_time < Duration::from_secs(360));
+        #[cfg(debug_assertions)]
+        {
+            // The largest test in our suite takes less then 5000 ticks
+            // with all the algorithm improvements.
+            // If any of them are removed then it takes more than I am willing to measure.
+            // So lets fail the test fast if we have ben running for two long.
+            assert!(
+                self.ticks < 50_000,
+                "got to 50_000 ticks in {:?}",
+                self.start.elapsed()
+            );
+            // The largest test in our suite takes less then 30 sec
+            // with all the improvements to how fast a tick can go.
+            // If any of them are removed then it takes more than I am willing to measure.
+            // So lets fail the test fast if we have ben running for two long.
+            if self.ticks % 1000 == 0 {
+                assert!(
+                    self.start.elapsed() - self.deps_time
+                        < Duration::from_secs(self.slow_cpu_multiplier * 90)
+                );
+            }
         }
         Ok(())
     }
@@ -74,7 +92,7 @@ impl ResolverProgress {
 }
 
 pub struct RegistryQueryer<'a> {
-    pub registry: &'a mut (Registry + 'a),
+    pub registry: &'a mut (dyn Registry + 'a),
     replacements: &'a [(PackageIdSpec, Dependency)],
     try_to_use: &'a HashSet<PackageId>,
     cache: HashMap<Dependency, Rc<Vec<Candidate>>>,
@@ -86,7 +104,7 @@ pub struct RegistryQueryer<'a> {
 
 impl<'a> RegistryQueryer<'a> {
     pub fn new(
-        registry: &'a mut Registry,
+        registry: &'a mut dyn Registry,
         replacements: &'a [(PackageIdSpec, Dependency)],
         try_to_use: &'a HashSet<PackageId>,
         minimal_versions: bool,
@@ -142,7 +160,7 @@ impl<'a> RegistryQueryer<'a> {
 
             let mut summaries = self.registry.query_vec(dep, false)?.into_iter();
             let s = summaries.next().ok_or_else(|| {
-                format_err!(
+                failure::format_err!(
                     "no matching package for override `{}` found\n\
                      location searched: {}\n\
                      version required: {}",
@@ -157,7 +175,7 @@ impl<'a> RegistryQueryer<'a> {
                     .iter()
                     .map(|s| format!("  * {}", s.package_id()))
                     .collect::<Vec<_>>();
-                bail!(
+                failure::bail!(
                     "the replacement specification `{}` matched \
                      multiple packages:\n  * {}\n{}",
                     spec,
@@ -182,7 +200,7 @@ impl<'a> RegistryQueryer<'a> {
 
             // Make sure no duplicates
             if let Some(&(ref spec, _)) = potential_matches.next() {
-                bail!(
+                failure::bail!(
                     "overlapping replacement specifications found:\n\n  \
                      * {}\n  * {}\n\nboth specifications match: {}",
                     matched_spec,

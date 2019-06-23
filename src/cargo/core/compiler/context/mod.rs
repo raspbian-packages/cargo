@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use jobserver::Client;
 
-use core::compiler::compilation;
-use core::profiles::Profile;
-use core::{Package, PackageId, Resolve, Target};
-use util::errors::{CargoResult, CargoResultExt};
-use util::{internal, profile, short_hash, Config};
+use crate::core::compiler::compilation;
+use crate::core::profiles::Profile;
+use crate::core::{Package, PackageId, Resolve, Target};
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{internal, profile, short_hash, Config};
 
 use super::build_plan::BuildPlan;
 use super::custom_build::{self, BuildDeps, BuildScripts, BuildState};
@@ -27,7 +27,7 @@ mod compilation_files;
 use self::compilation_files::CompilationFiles;
 pub use self::compilation_files::{Metadata, OutputFile};
 
-/// All information needed to define a Unit.
+/// All information needed to define a unit.
 ///
 /// A unit is an object that has enough information so that cargo knows how to build it.
 /// For example, if your package has dependencies, then every dependency will be built as a library
@@ -60,8 +60,7 @@ pub struct Unit<'a> {
     /// the host architecture so the host rustc can use it (when compiling to the target
     /// architecture).
     pub kind: Kind,
-    /// The "mode" this unit is being compiled for.  See `CompileMode` for
-    /// more details.
+    /// The "mode" this unit is being compiled for. See [`CompileMode`] for more details.
     pub mode: CompileMode,
 }
 
@@ -129,7 +128,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
         mut self,
         units: &[Unit<'a>],
         export_dir: Option<PathBuf>,
-        exec: &Arc<Executor>,
+        exec: &Arc<dyn Executor>,
     ) -> CargoResult<Compilation<'cfg>> {
         let mut queue = JobQueue::new(self.bcx);
         let mut plan = BuildPlan::new();
@@ -163,10 +162,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                     continue;
                 }
 
-                let bindst = match output.hardlink {
-                    Some(ref link_dst) => link_dst,
-                    None => &output.path,
-                };
+                let bindst = output.bin_dst();
 
                 if unit.mode == CompileMode::Test {
                     self.compilation.tests.push((
@@ -196,7 +192,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
             }
 
             if unit.mode == CompileMode::Doctest {
-                // Note that we can *only* doctest rlib outputs here.  A
+                // Note that we can *only* doc-test rlib outputs here. A
                 // staticlib output cannot be linked by the compiler (it just
                 // doesn't do that). A dylib output, however, can be linked by
                 // the compiler, but will always fail. Currently all dylibs are
@@ -274,6 +270,23 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
         Ok(self.compilation)
     }
 
+    /// Returns the executable for the specified unit (if any).
+    pub fn get_executable(&mut self, unit: &Unit<'a>) -> CargoResult<Option<PathBuf>> {
+        for output in self.outputs(unit)?.iter() {
+            if output.flavor == FileFlavor::DebugInfo {
+                continue;
+            }
+
+            let is_binary = unit.target.is_bin() || unit.target.is_bin_example();
+            let is_test = unit.mode.is_any_test() && !unit.mode.is_check();
+
+            if is_binary || is_test {
+                return Ok(Option::Some(output.bin_dst().clone()));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn prepare_units(
         &mut self,
         export_dir: Option<PathBuf>,
@@ -342,14 +355,15 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
         self.files.as_mut().unwrap()
     }
 
-    /// Return the filenames that the given unit will generate.
+    /// Returns the filenames that the given unit will generate.
     pub fn outputs(&self, unit: &Unit<'a>) -> CargoResult<Arc<Vec<OutputFile>>> {
         self.files.as_ref().unwrap().outputs(unit, self.bcx)
     }
 
     /// For a package, return all targets which are registered as dependencies
     /// for that package.
-    // TODO: this ideally should be `-> &[Unit<'a>]`
+    //
+    // TODO: this ideally should be `-> &[Unit<'a>]`.
     pub fn dep_targets(&self, unit: &Unit<'a>) -> Vec<Unit<'a>> {
         // If this build script's execution has been overridden then we don't
         // actually depend on anything, we've reached the end of the dependency
@@ -372,82 +386,27 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
         deps
     }
 
-    pub fn incremental_args(&self, unit: &Unit) -> CargoResult<Vec<String>> {
-        // There's a number of ways to configure incremental compilation right
-        // now. In order of descending priority (first is highest priority) we
-        // have:
-        //
-        // * `CARGO_INCREMENTAL` - this is blanket used unconditionally to turn
-        //   on/off incremental compilation for any cargo subcommand. We'll
-        //   respect this if set.
-        // * `build.incremental` - in `.cargo/config` this blanket key can
-        //   globally for a system configure whether incremental compilation is
-        //   enabled. Note that setting this to `true` will not actually affect
-        //   all builds though. For example a `true` value doesn't enable
-        //   release incremental builds, only dev incremental builds. This can
-        //   be useful to globally disable incremental compilation like
-        //   `CARGO_INCREMENTAL`.
-        // * `profile.dev.incremental` - in `Cargo.toml` specific profiles can
-        //   be configured to enable/disable incremental compilation. This can
-        //   be primarily used to disable incremental when buggy for a package.
-        // * Finally, each profile has a default for whether it will enable
-        //   incremental compilation or not. Primarily development profiles
-        //   have it enabled by default while release profiles have it disabled
-        //   by default.
-        let global_cfg = self
-            .bcx
-            .config
-            .get_bool("build.incremental")?
-            .map(|c| c.val);
-        let incremental = match (
-            self.bcx.incremental_env,
-            global_cfg,
-            unit.profile.incremental,
-        ) {
-            (Some(v), _, _) => v,
-            (None, Some(false), _) => false,
-            (None, _, other) => other,
-        };
-
-        if !incremental {
-            return Ok(Vec::new());
-        }
-
-        // Only enable incremental compilation for sources the user can
-        // modify (aka path sources). For things that change infrequently,
-        // non-incremental builds yield better performance in the compiler
-        // itself (aka crates.io / git dependencies)
-        //
-        // (see also https://github.com/rust-lang/cargo/issues/3972)
-        if !unit.pkg.package_id().source_id().is_path() {
-            return Ok(Vec::new());
-        }
-
-        let dir = self.files().layout(unit.kind).incremental().display();
-        Ok(vec!["-C".to_string(), format!("incremental={}", dir)])
-    }
-
     pub fn is_primary_package(&self, unit: &Unit<'a>) -> bool {
         self.primary_packages.contains(&unit.pkg.package_id())
     }
 
-    /// Gets a package for the given package id.
+    /// Gets a package for the given package ID.
     pub fn get_package(&self, id: PackageId) -> CargoResult<&'a Package> {
         self.package_cache
             .get(&id)
             .cloned()
-            .ok_or_else(|| format_err!("failed to find {}", id))
+            .ok_or_else(|| failure::format_err!("failed to find {}", id))
     }
 
-    /// Return the list of filenames read by cargo to generate the BuildContext
-    /// (all Cargo.toml, etc).
+    /// Returns the list of filenames read by cargo to generate the `BuildContext`
+    /// (all `Cargo.toml`, etc.).
     pub fn build_plan_inputs(&self) -> CargoResult<Vec<PathBuf>> {
         let mut inputs = Vec::new();
         // Note that we're using the `package_cache`, which should have been
         // populated by `build_unit_dependencies`, and only those packages are
         // considered as all the inputs.
         //
-        // (notably we skip dev-deps here if they aren't present)
+        // (Notably, we skip dev-deps here if they aren't present.)
         for pkg in self.package_cache.values() {
             inputs.push(pkg.manifest_path().to_path_buf());
         }
@@ -457,24 +416,26 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
 
     fn check_collistions(&self) -> CargoResult<()> {
         let mut output_collisions = HashMap::new();
-        let describe_collision = |unit: &Unit, other_unit: &Unit, path: &PathBuf| -> String {
-            format!(
-                "The {} target `{}` in package `{}` has the same output \
-                 filename as the {} target `{}` in package `{}`.\n\
-                 Colliding filename is: {}\n",
-                unit.target.kind().description(),
-                unit.target.name(),
-                unit.pkg.package_id(),
-                other_unit.target.kind().description(),
-                other_unit.target.name(),
-                other_unit.pkg.package_id(),
-                path.display()
-            )
-        };
+        let describe_collision =
+            |unit: &Unit<'_>, other_unit: &Unit<'_>, path: &PathBuf| -> String {
+                format!(
+                    "The {} target `{}` in package `{}` has the same output \
+                     filename as the {} target `{}` in package `{}`.\n\
+                     Colliding filename is: {}\n",
+                    unit.target.kind().description(),
+                    unit.target.name(),
+                    unit.pkg.package_id(),
+                    other_unit.target.kind().description(),
+                    other_unit.target.name(),
+                    other_unit.pkg.package_id(),
+                    path.display()
+                )
+            };
         let suggestion = "Consider changing their names to be unique or compiling them separately.\n\
-            This may become a hard error in the future, see https://github.com/rust-lang/cargo/issues/6313";
-        let report_collision = |unit: &Unit,
-                                other_unit: &Unit,
+            This may become a hard error in the future; see \
+            <https://github.com/rust-lang/cargo/issues/6313>.";
+        let report_collision = |unit: &Unit<'_>,
+                                other_unit: &Unit<'_>,
                                 path: &PathBuf|
          -> CargoResult<()> {
             if unit.target.name() == other_unit.target.name() {
@@ -500,7 +461,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                     Second unit: {:?}",
                     describe_collision(unit, other_unit, path),
                     suggestion,
-                    ::version(), self.bcx.host_triple(), self.bcx.target_triple(),
+                    crate::version(), self.bcx.host_triple(), self.bcx.target_triple(),
                     unit, other_unit))
             }
         };
@@ -553,7 +514,7 @@ impl Links {
         }
     }
 
-    pub fn validate(&mut self, resolve: &Resolve, unit: &Unit) -> CargoResult<()> {
+    pub fn validate(&mut self, resolve: &Resolve, unit: &Unit<'_>) -> CargoResult<()> {
         if !self.validated.insert(unit.pkg.package_id()) {
             return Ok(());
         }
@@ -573,7 +534,7 @@ impl Links {
                 dep_path_desc
             };
 
-            bail!(
+            failure::bail!(
                 "multiple packages link to native library `{}`, \
                  but a native library can be linked only once\n\
                  \n\
@@ -594,7 +555,7 @@ impl Links {
             .iter()
             .any(|t| t.is_custom_build())
         {
-            bail!(
+            failure::bail!(
                 "package `{}` specifies that it links to `{}` but does not \
                  have a custom build script",
                 unit.pkg.package_id(),

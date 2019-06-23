@@ -163,7 +163,8 @@ impl EcGroupRef {
                 a.as_ptr(),
                 b.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -192,7 +193,8 @@ impl EcGroupRef {
                 a.as_ptr(),
                 b.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -220,7 +222,8 @@ impl EcGroupRef {
                 self.as_ptr(),
                 order.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -233,6 +236,16 @@ impl EcGroupRef {
         unsafe {
             ffi::EC_GROUP_set_asn1_flag(self.as_ptr(), flag.0);
         }
+    }
+
+    /// Returns the name of the curve, if a name is associated.
+    ///
+    /// OpenSSL documentation at [`EC_GROUP_get_curve_name`]
+    ///
+    /// [`EC_GROUP_get_curve_name`]: https://www.openssl.org/docs/man1.1.0/crypto/EC_GROUP_get_curve_name.html
+    pub fn curve_name(&self) -> Option<Nid> {
+        let nid = unsafe { ffi::EC_GROUP_get_curve_name(self.as_ptr()) };
+        if nid > 0 { Some(Nid::from_raw(nid)) } else { None }
     }
 }
 
@@ -272,7 +285,8 @@ impl EcPointRef {
                 a.as_ptr(),
                 b.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -296,7 +310,8 @@ impl EcPointRef {
                 q.as_ptr(),
                 m.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -315,7 +330,8 @@ impl EcPointRef {
                 ptr::null(),
                 ptr::null(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -336,7 +352,8 @@ impl EcPointRef {
                 q.as_ptr(),
                 m.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -351,7 +368,8 @@ impl EcPointRef {
                 group.as_ptr(),
                 self.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -437,7 +455,8 @@ impl EcPointRef {
                 x.as_ptr(),
                 y.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 
@@ -462,7 +481,8 @@ impl EcPointRef {
                 x.as_ptr(),
                 y.as_ptr(),
                 ctx.as_ptr(),
-            )).map(|_| ())
+            ))
+            .map(|_| ())
         }
     }
 }
@@ -688,7 +708,8 @@ impl EcKey<Public> {
                     cvt(ffi::EC_KEY_set_public_key(
                         key.as_ptr(),
                         public_key.as_ptr(),
-                    )).map(|_| key)
+                    ))
+                    .map(|_| key)
                 })
         }
     }
@@ -710,7 +731,8 @@ impl EcKey<Public> {
                         key.as_ptr(),
                         x.as_ptr(),
                         y.as_ptr(),
-                    )).map(|_| key)
+                    ))
+                    .map(|_| key)
                 })
         }
     }
@@ -745,13 +767,15 @@ impl EcKey<Private> {
                     cvt(ffi::EC_KEY_set_private_key(
                         key.as_ptr(),
                         private_number.as_ptr(),
-                    )).map(|_| key)
+                    ))
+                    .map(|_| key)
                 })
                 .and_then(|key| {
                     cvt(ffi::EC_KEY_set_public_key(
                         key.as_ptr(),
                         public_key.as_ptr(),
-                    )).map(|_| key)
+                    ))
+                    .map(|_| key)
                 })
         }
     }
@@ -803,9 +827,10 @@ impl<T> Clone for EcKey<T> {
 
 #[cfg(test)]
 mod test {
+    use hex::FromHex;
+
     use super::*;
     use bn::{BigNum, BigNumContext};
-    use data_encoding::BASE64URL_NOPAD;
     use nid::Nid;
 
     #[test]
@@ -889,11 +914,9 @@ mod test {
     #[test]
     fn key_from_affine_coordinates() {
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
-        let x = BASE64URL_NOPAD
-            .decode("MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4".as_bytes())
+        let x = Vec::from_hex("30a0424cd21c2944838a2d75c92b37e76ea20d9f00893a3b4eee8a3c0aafec3e")
             .unwrap();
-        let y = BASE64URL_NOPAD
-            .decode("4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM".as_bytes())
+        let y = Vec::from_hex("e04b65e92456d9888b52b379bdfbd51ee869ef1f0fc65b6659695b6cce081723")
             .unwrap();
 
         let xbn = BigNum::from_slice(&x).unwrap();
@@ -906,11 +929,9 @@ mod test {
     #[test]
     fn get_affine_coordinates() {
         let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).unwrap();
-        let x = BASE64URL_NOPAD
-            .decode("MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4".as_bytes())
+        let x = Vec::from_hex("30a0424cd21c2944838a2d75c92b37e76ea20d9f00893a3b4eee8a3c0aafec3e")
             .unwrap();
-        let y = BASE64URL_NOPAD
-            .decode("4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM".as_bytes())
+        let y = Vec::from_hex("e04b65e92456d9888b52b379bdfbd51ee869ef1f0fc65b6659695b6cce081723")
             .unwrap();
 
         let xbn = BigNum::from_slice(&x).unwrap();

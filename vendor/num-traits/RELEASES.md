@@ -1,3 +1,24 @@
+# Release 0.2.8 (2019-05-21)
+
+- [Fixed feature detection on `no_std` targets][116].
+
+**Contributors**: @cuviper
+
+[116]: https://github.com/rust-num/num-traits/pull/116
+
+# Release 0.2.7 (2019-05-20)
+
+- [Documented when `CheckedShl` and `CheckedShr` return `None`][90].
+- [The new `Zero::set_zero` and `One::set_one`][104] will set values to their
+  identities in place, possibly optimized better than direct assignment.
+- [Documented general features and intentions of `PrimInt`][108].
+
+**Contributors**: @cuviper, @dvdhrm, @ignatenkobrain, @lcnr, @samueltardieu
+
+[90]: https://github.com/rust-num/num-traits/pull/90
+[104]: https://github.com/rust-num/num-traits/pull/104
+[108]: https://github.com/rust-num/num-traits/pull/108
+
 # Release 0.2.6 (2018-09-13)
 
 - [Documented that `pow(0, 0)` returns `1`][79].  Mathematically, this is not

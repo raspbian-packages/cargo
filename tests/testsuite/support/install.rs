@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use support::paths;
+use crate::support::paths;
 
 /// Used by `cargo install` tests to assert an executable binary
-/// has been installed.  Example usage:
+/// has been installed. Example usage:
 ///
 ///     assert_has_installed_exe(cargo_home(), "foo");
 pub fn assert_has_installed_exe<P: AsRef<Path>>(path: P, name: &'static str) {

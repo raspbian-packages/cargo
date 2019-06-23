@@ -43,7 +43,7 @@ cargo update
 cp Cargo.lock Cargo.lock.orig
 
 if [ -d debcargo-conf ]; then ( cd debcargo-conf && git pull );
-else git clone https://salsa.debian.org/rust-team/debcargo-conf; fi
+else git clone "${DEBCARGO_CONF:-https://salsa.debian.org/rust-team/debcargo-conf}"; fi
 
 # keep applying patches, and drop to a subshell for manual fixing, until it succeeds
 while ! ( cd vendor
@@ -66,7 +66,9 @@ for i in *; do
 		QUILT_PATCHES=debian/patches quilt push -a
 		case $? in
 		0|2) true;;
-		*) echo >&2 "$0: patching $i failed <<<<<<<<<<<<<<<<<<<<<<<<"; x=false;;
+		*)  echo >&2 "$0: patching $i failed <<<<<<<<<<<<<<<<<<<<<<<<"
+			QUILT_PATCHES=debian/patches quilt pop -af
+			x=false;;
 		esac
 	fi
 	if [ -f ../../debcargo-conf/src/$i/debian/build.rs ]; then

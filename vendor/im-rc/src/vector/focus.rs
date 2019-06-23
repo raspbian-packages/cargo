@@ -7,10 +7,10 @@ use std::ops::{Range, RangeBounds};
 use std::ptr::null;
 use std::sync::atomic::{AtomicPtr, Ordering};
 
-use nodes::chunk::Chunk;
-use sync::Lock;
-use util::{to_range, Ref};
-use vector::{Iter, IterMut, Vector, RRB};
+use crate::nodes::chunk::Chunk;
+use crate::sync::Lock;
+use crate::util::{to_range, Ref};
+use crate::vector::{Iter, IterMut, Vector, RRB};
 
 /// Focused indexing over a [`Vector`][Vector].
 ///
@@ -86,6 +86,8 @@ where
     A: 'a,
 {
     #[doc(hidden)]
+    Empty,
+    #[doc(hidden)]
     Single(&'a [A]),
     #[doc(hidden)]
     Full(TreeFocus<A>),
@@ -100,6 +102,7 @@ where
     /// [Vector]: enum.Vector.html
     pub fn new(vector: &'a Vector<A>) -> Self {
         match vector {
+            Vector::Empty => Focus::Empty,
             Vector::Single(chunk) => Focus::Single(chunk),
             Vector::Full(tree) => Focus::Full(TreeFocus::new(tree)),
         }
@@ -110,6 +113,7 @@ where
     /// [Vector]: enum.Vector.html
     pub fn len(&self) -> usize {
         match self {
+            Focus::Empty => 0,
             Focus::Single(chunk) => chunk.len(),
             Focus::Full(tree) => tree.len(),
         }
@@ -125,6 +129,7 @@ where
     /// Get a reference to the value at a given index.
     pub fn get(&mut self, index: usize) -> Option<&A> {
         match self {
+            Focus::Empty => None,
             Focus::Single(chunk) => chunk.get(index),
             Focus::Full(tree) => tree.get(index),
         }
@@ -147,6 +152,7 @@ where
             panic!("vector::Focus::chunk_at: index out of bounds");
         }
         match self {
+            Focus::Empty => (0..0, &[]),
             Focus::Single(chunk) => (0..len, chunk),
             Focus::Full(tree) => tree.get_chunk(index),
         }
@@ -184,6 +190,7 @@ where
             panic!("vector::Focus::narrow: range out of bounds");
         }
         match self {
+            Focus::Empty => Focus::Empty,
             Focus::Single(chunk) => Focus::Single(&chunk[r]),
             Focus::Full(tree) => Focus::Full(tree.narrow(r)),
         }
@@ -224,6 +231,7 @@ where
             panic!("vector::Focus::split_at: index out of bounds");
         }
         match self {
+            Focus::Empty => (Focus::Empty, Focus::Empty),
             Focus::Single(chunk) => {
                 let (left, right) = chunk.split_at(index);
                 (Focus::Single(left), Focus::Single(right))
@@ -254,6 +262,7 @@ where
 {
     fn clone(&self) -> Self {
         match self {
+            Focus::Empty => Focus::Empty,
             Focus::Single(chunk) => Focus::Single(chunk),
             Focus::Full(tree) => Focus::Full(tree.clone()),
         }
@@ -424,12 +433,16 @@ where
 /// # fn main() {
 /// let mut vec = Vector::from_iter(0..1000);
 /// let focus1 = vec.focus_mut();
-/// // Fails here because you already have a focus
+/// // Fails here in 2015 edition because you're creating
+/// // two mutable references to the same thing.
 /// let focus2 = vec.focus_mut();
+/// // Fails here in 2018 edition because creating focus2
+/// // made focus1's lifetime go out of scope.
+/// assert_eq!(Some(&0), focus1.get(0));
 /// # }
 /// ```
 ///
-/// On the other hand, you can split that one focus into multiple sub-foci,
+/// On the other hand, you can split that one focus into multiple sub-focuses,
 /// which is safe because they can't overlap:
 ///
 /// ```rust
@@ -439,7 +452,9 @@ where
 /// # fn main() {
 /// let mut vec = Vector::from_iter(0..1000);
 /// let focus = vec.focus_mut();
-/// let (left, right) = focus.split_at(500);
+/// let (mut left, mut right) = focus.split_at(500);
+/// assert_eq!(Some(&0), left.get(0));
+/// assert_eq!(Some(&500), right.get(0));
 /// # }
 /// ```
 ///
@@ -459,6 +474,7 @@ where
 /// // `left` and `right` are still in scope even if `focus` isn't, so we can't
 /// // create another focus:
 /// let focus2 = vec.focus_mut();
+/// assert_eq!(Some(&0), left.get(0));
 /// # }
 /// ```
 ///
@@ -467,6 +483,8 @@ pub enum FocusMut<'a, A>
 where
     A: 'a,
 {
+    #[doc(hidden)]
+    Empty,
     #[doc(hidden)]
     Single(&'a mut [A]),
     #[doc(hidden)]
@@ -480,6 +498,7 @@ where
     /// Construct a `FocusMut` for a `Vector`.
     pub fn new(vector: &'a mut Vector<A>) -> Self {
         match vector {
+            Vector::Empty => FocusMut::Empty,
             Vector::Single(chunk) => FocusMut::Single(Ref::make_mut(chunk).as_mut_slice()),
             Vector::Full(tree) => FocusMut::Full(TreeFocusMut::new(tree)),
         }
@@ -488,6 +507,7 @@ where
     /// Get the length of the focused `Vector`.
     pub fn len(&self) -> usize {
         match self {
+            FocusMut::Empty => 0,
             FocusMut::Single(chunk) => chunk.len(),
             FocusMut::Full(tree) => tree.len(),
         }
@@ -506,6 +526,7 @@ where
     /// Get a mutable reference to the value at a given index.
     pub fn get_mut(&mut self, index: usize) -> Option<&mut A> {
         match self {
+            FocusMut::Empty => None,
             FocusMut::Single(chunk) => chunk.get_mut(index),
             FocusMut::Full(tree) => tree.get(index),
         }
@@ -624,6 +645,7 @@ where
             panic!("vector::FocusMut::chunk_at: index out of bounds");
         }
         match self {
+            FocusMut::Empty => (0..0, &mut []),
             FocusMut::Single(chunk) => (0..len, chunk),
             FocusMut::Full(tree) => {
                 let (range, chunk) = tree.get_chunk(index);
@@ -664,6 +686,7 @@ where
             panic!("vector::FocusMut::narrow: range out of bounds");
         }
         match self {
+            FocusMut::Empty => FocusMut::Empty,
             FocusMut::Single(chunk) => FocusMut::Single(&mut chunk[r]),
             FocusMut::Full(tree) => FocusMut::Full(tree.narrow(r)),
         }
@@ -711,6 +734,7 @@ where
             panic!("vector::FocusMut::split_at: index out of bounds");
         }
         match self {
+            FocusMut::Empty => (FocusMut::Empty, FocusMut::Empty),
             FocusMut::Single(chunk) => {
                 let (left, right) = chunk.split_at_mut(index);
                 (FocusMut::Single(left), FocusMut::Single(right))
@@ -725,6 +749,7 @@ where
     /// Convert a `FocusMut` into a `Focus`.
     pub fn unmut(self) -> Focus<'a, A> {
         match self {
+            FocusMut::Empty => Focus::Empty,
             FocusMut::Single(chunk) => Focus::Single(chunk),
             FocusMut::Full(mut tree) => Focus::Full(TreeFocus {
                 tree: {

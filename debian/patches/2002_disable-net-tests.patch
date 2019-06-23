@@ -6,15 +6,15 @@ This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
 --- a/tests/testsuite/build_auth.rs
 +++ b/tests/testsuite/build_auth.rs
 @@ -10,7 +10,7 @@
- use support::{basic_manifest, project};
+ use git2;
  
- // Test that HTTP auth is offered from `credential.helper`
+ // Tests that HTTP auth is offered from `credential.helper`.
 -#[test]
 +#[allow(dead_code)]
  fn http_auth_offered() {
      let server = TcpListener::bind("127.0.0.1:0").unwrap();
      let addr = server.local_addr().unwrap();
-@@ -141,7 +141,7 @@
+@@ -149,7 +149,7 @@
  }
  
  // Boy, sure would be nice to have a TLS implementation in rust!
@@ -26,15 +26,15 @@ This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
 --- a/tests/testsuite/net_config.rs
 +++ b/tests/testsuite/net_config.rs
 @@ -1,6 +1,6 @@
- use support::project;
+ use crate::support::project;
  
 -#[test]
 +#[allow(dead_code)]
  fn net_retry_loads_from_config() {
      let p = project()
          .file(
-@@ -33,7 +33,7 @@
-         ).run();
+@@ -36,7 +36,7 @@
+         .run();
  }
  
 -#[test]

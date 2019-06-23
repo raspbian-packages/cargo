@@ -1,13 +1,13 @@
 /*
-# Introduction To `support`
+# Introduction to `support`.
 
 Cargo has a wide variety of integration tests that execute the `cargo` binary
-and verify its behavior.  The `support` module contains many helpers to make
+and verify its behavior. The `support` module contains many helpers to make
 this process easy.
 
 The general form of a test involves creating a "project", running cargo, and
-checking the result.  Projects are created with the `ProjectBuilder` where you
-specify some files to create.  The general form looks like this:
+checking the result. Projects are created with the `ProjectBuilder` where you
+specify some files to create. The general form looks like this:
 
 ```
 let p = project()
@@ -35,8 +35,8 @@ p.cargo("run --bin foo")
 
 The project creates a mini sandbox under the "cargo integration test"
 directory with each test getting a separate directory such as
-`/path/to/cargo/target/cit/t123/`.  Each project appears as a separate
-directory.  There is also an empty `home` directory created that will be used
+`/path/to/cargo/target/cit/t123/`. Each project appears as a separate
+directory. There is also an empty `home` directory created that will be used
 as a home directory instead of your normal home directory.
 
 See `support::lines_match` for an explanation of the string pattern matching.
@@ -69,8 +69,8 @@ if !is_nightly() {
 When checking output, use `/` for paths even on Windows: the actual output
 of `\` on Windows will be replaced with `/`.
 
-Be careful when executing binaries on Windows.  You should not rename, delete,
-or overwrite a binary immediately after running it.  Under some conditions
+Be careful when executing binaries on Windows. You should not rename, delete,
+or overwrite a binary immediately after running it. Under some conditions
 Windows will fail with errors like "directory not empty" or "failed to remove"
 or "access is denied".
 
@@ -242,7 +242,7 @@ impl ProjectBuilder {
         self
     }
 
-    /// Add a file to the project.
+    /// Adds a file to the project.
     pub fn file<B: AsRef<Path>>(mut self, path: B, body: &str) -> Self {
         self._file(path.as_ref(), body);
         self
@@ -253,7 +253,7 @@ impl ProjectBuilder {
             .push(FileBuilder::new(self.root.root().join(path), body));
     }
 
-    /// Add a symlink to the project.
+    /// Adds a symlink to the project.
     pub fn symlink<T: AsRef<Path>>(mut self, dst: T, src: T) -> Self {
         self.symlinks.push(SymlinkBuilder::new(
             self.root.root().join(dst),
@@ -267,7 +267,7 @@ impl ProjectBuilder {
         self
     }
 
-    /// Create the project.
+    /// Creates the project.
     pub fn build(mut self) -> Project {
         // First, clean the directory if it already exists
         self.rm_root();
@@ -370,24 +370,24 @@ impl Project {
         ))
     }
 
-    /// Change the contents of an existing file.
+    /// Changes the contents of an existing file.
     pub fn change_file(&self, path: &str, body: &str) {
         FileBuilder::new(self.root().join(path), body).mk()
     }
 
-    /// Create a `ProcessBuilder` to run a program in the project
+    /// Creates a `ProcessBuilder` to run a program in the project
     /// and wrap it in an Execs to assert on the execution.
     /// Example:
     ///         p.process(&p.bin("foo"))
     ///             .with_stdout("bar\n")
     ///             .run();
     pub fn process<T: AsRef<OsStr>>(&self, program: T) -> Execs {
-        let mut p = ::support::process(program);
+        let mut p = crate::support::process(program);
         p.cwd(self.root());
         execs().with_process_builder(p)
     }
 
-    /// Create a `ProcessBuilder` to run cargo.
+    /// Creates a `ProcessBuilder` to run cargo.
     /// Arguments can be separated by spaces.
     /// Example:
     ///     p.cargo("build --bin foo").run();
@@ -397,6 +397,27 @@ impl Project {
             split_and_add_args(p, cmd);
         }
         execs
+    }
+
+    /// Safely run a process after `cargo build`.
+    ///
+    /// Windows has a problem where a process cannot be reliably
+    /// be replaced, removed, or renamed immediately after executing it.
+    /// The action may fail (with errors like Access is denied), or
+    /// it may succeed, but future attempts to use the same filename
+    /// will fail with "Already Exists".
+    ///
+    /// If you have a test that needs to do `cargo run` multiple
+    /// times, you should instead use `cargo build` and use this
+    /// method to run the executable. Each time you call this,
+    /// use a new name for `dst`.
+    /// See rust-lang/cargo#5481.
+    pub fn rename_run(&self, src: &str, dst: &str) -> Execs {
+        let src = self.bin(src);
+        let dst = self.bin(dst);
+        fs::rename(&src, &dst)
+            .unwrap_or_else(|e| panic!("Failed to rename `{:?}` to `{:?}`: {}", src, dst, e));
+        self.process(dst)
     }
 
     /// Returns the contents of `Cargo.lock`.
@@ -516,7 +537,8 @@ pub fn cargo_dir() -> PathBuf {
                 }
                 path
             })
-        }).unwrap_or_else(|| panic!("CARGO_BIN_PATH wasn't set. Cannot continue running test"))
+        })
+        .unwrap_or_else(|| panic!("CARGO_BIN_PATH wasn't set. Cannot continue running test"))
 }
 
 pub fn cargo_exe() -> PathBuf {
@@ -549,6 +571,7 @@ pub struct Execs {
     expect_stderr_unordered: Vec<String>,
     expect_neither_contains: Vec<String>,
     expect_json: Option<Vec<Value>>,
+    expect_json_contains_unordered: Vec<Value>,
     stream_output: bool,
 }
 
@@ -558,21 +581,21 @@ impl Execs {
         self
     }
 
-    /// Verify that stdout is equal to the given lines.
+    /// Verifies that stdout is equal to the given lines.
     /// See `lines_match` for supported patterns.
     pub fn with_stdout<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stdout = Some(expected.to_string());
         self
     }
 
-    /// Verify that stderr is equal to the given lines.
+    /// Verifies that stderr is equal to the given lines.
     /// See `lines_match` for supported patterns.
     pub fn with_stderr<S: ToString>(&mut self, expected: S) -> &mut Self {
         self.expect_stderr = Some(expected.to_string());
         self
     }
 
-    /// Verify the exit code from the process.
+    /// Verifies the exit code from the process.
     ///
     /// This is not necessary if the expected exit code is `0`.
     pub fn with_status(&mut self, expected: i32) -> &mut Self {
@@ -580,7 +603,7 @@ impl Execs {
         self
     }
 
-    /// Remove exit code check for the process.
+    /// Removes exit code check for the process.
     ///
     /// By default, the expected exit code is `0`.
     pub fn without_status(&mut self) -> &mut Self {
@@ -588,7 +611,7 @@ impl Execs {
         self
     }
 
-    /// Verify that stdout contains the given contiguous lines somewhere in
+    /// Verifies that stdout contains the given contiguous lines somewhere in
     /// its output.
     /// See `lines_match` for supported patterns.
     pub fn with_stdout_contains<S: ToString>(&mut self, expected: S) -> &mut Self {
@@ -596,7 +619,7 @@ impl Execs {
         self
     }
 
-    /// Verify that stderr contains the given contiguous lines somewhere in
+    /// Verifies that stderr contains the given contiguous lines somewhere in
     /// its output.
     /// See `lines_match` for supported patterns.
     pub fn with_stderr_contains<S: ToString>(&mut self, expected: S) -> &mut Self {
@@ -604,7 +627,7 @@ impl Execs {
         self
     }
 
-    /// Verify that either stdout or stderr contains the given contiguous
+    /// Verifies that either stdout or stderr contains the given contiguous
     /// lines somewhere in its output.
     /// See `lines_match` for supported patterns.
     pub fn with_either_contains<S: ToString>(&mut self, expected: S) -> &mut Self {
@@ -612,7 +635,7 @@ impl Execs {
         self
     }
 
-    /// Verify that stdout contains the given contiguous lines somewhere in
+    /// Verifies that stdout contains the given contiguous lines somewhere in
     /// its output, and should be repeated `number` times.
     /// See `lines_match` for supported patterns.
     pub fn with_stdout_contains_n<S: ToString>(&mut self, expected: S, number: usize) -> &mut Self {
@@ -621,7 +644,7 @@ impl Execs {
         self
     }
 
-    /// Verify that stdout does not contain the given contiguous lines.
+    /// Verifies that stdout does not contain the given contiguous lines.
     /// See `lines_match` for supported patterns.
     /// See note on `with_stderr_does_not_contain`.
     pub fn with_stdout_does_not_contain<S: ToString>(&mut self, expected: S) -> &mut Self {
@@ -629,11 +652,11 @@ impl Execs {
         self
     }
 
-    /// Verify that stderr does not contain the given contiguous lines.
+    /// Verifies that stderr does not contain the given contiguous lines.
     /// See `lines_match` for supported patterns.
     ///
     /// Care should be taken when using this method because there is a
-    /// limitless number of possible things that *won't* appear.  A typo means
+    /// limitless number of possible things that *won't* appear. A typo means
     /// your test will pass without verifying the correct behavior. If
     /// possible, write the test first so that it fails, and then implement
     /// your fix/feature to make it pass.
@@ -642,7 +665,7 @@ impl Execs {
         self
     }
 
-    /// Verify that all of the stderr output is equal to the given lines,
+    /// Verifies that all of the stderr output is equal to the given lines,
     /// ignoring the order of the lines.
     /// See `lines_match` for supported patterns.
     /// This is useful when checking the output of `cargo build -v` since
@@ -652,9 +675,11 @@ impl Execs {
     ///
     /// Be careful when using patterns such as `[..]`, because you may end up
     /// with multiple lines that might match, and this is not smart enough to
-    /// do anything like longest-match.  For example, avoid something like:
+    /// do anything like longest-match. For example, avoid something like:
+    ///
     ///     [RUNNING] `rustc [..]
     ///     [RUNNING] `rustc --crate-name foo [..]
+    ///
     /// This will randomly fail if the other crate name is `bar`, and the
     /// order changes.
     pub fn with_stderr_unordered<S: ToString>(&mut self, expected: S) -> &mut Self {
@@ -662,7 +687,7 @@ impl Execs {
         self
     }
 
-    /// Verify the JSON output matches the given JSON.
+    /// Verifies the JSON output matches the given JSON.
     /// Typically used when testing cargo commands that emit JSON.
     /// Each separate JSON object should be separated by a blank line.
     /// Example:
@@ -684,6 +709,24 @@ impl Execs {
                 .split("\n\n")
                 .map(|line| line.parse().expect("line to be a valid JSON value"))
                 .collect(),
+        );
+        self
+    }
+
+    /// Verifies JSON output contains the given objects (in any order) somewhere
+    /// in its output.
+    ///
+    /// CAUTION: Be very careful when using this. Make sure every object is
+    /// unique (not a subset of one another). Also avoid using objects that
+    /// could possibly match multiple output lines unless you're very sure of
+    /// what you are doing.
+    ///
+    /// See `with_json` for more detail.
+    pub fn with_json_contains_unordered(&mut self, expected: &str) -> &mut Self {
+        self.expect_json_contains_unordered.extend(
+            expected
+                .split("\n\n")
+                .map(|line| line.parse().expect("line to be a valid JSON value")),
         );
         self
     }
@@ -761,6 +804,32 @@ impl Execs {
         }
     }
 
+    fn verify_checks_output(&self, output: &Output) {
+        if self.expect_exit_code.unwrap_or(0) != 0
+            && self.expect_stdout.is_none()
+            && self.expect_stdin.is_none()
+            && self.expect_stderr.is_none()
+            && self.expect_stdout_contains.is_empty()
+            && self.expect_stderr_contains.is_empty()
+            && self.expect_either_contains.is_empty()
+            && self.expect_stdout_contains_n.is_empty()
+            && self.expect_stdout_not_contains.is_empty()
+            && self.expect_stderr_not_contains.is_empty()
+            && self.expect_stderr_unordered.is_empty()
+            && self.expect_neither_contains.is_empty()
+            && self.expect_json.is_none()
+            && self.expect_json_contains_unordered.is_empty()
+        {
+            panic!(
+                "`with_status()` is used, but no output is checked.\n\
+                 The test must check the output to ensure the correct error is triggered.\n\
+                 --- stdout\n{}\n--- stderr\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+        }
+    }
+
     fn match_process(&self, process: &ProcessBuilder) -> MatchResult {
         println!("running {}", process);
         let res = if self.stream_output {
@@ -797,6 +866,7 @@ impl Execs {
     }
 
     fn match_output(&self, actual: &Output) -> MatchResult {
+        self.verify_checks_output(actual);
         self.match_status(actual)
             .and(self.match_stdout(actual))
             .and(self.match_stderr(actual))
@@ -940,6 +1010,33 @@ impl Execs {
                 self.match_json(obj, line)?;
             }
         }
+
+        if !self.expect_json_contains_unordered.is_empty() {
+            let stdout = str::from_utf8(&actual.stdout)
+                .map_err(|_| "stdout was not utf8 encoded".to_owned())?;
+            let mut lines = stdout
+                .lines()
+                .filter(|line| line.starts_with('{'))
+                .collect::<Vec<_>>();
+            for obj in &self.expect_json_contains_unordered {
+                match lines
+                    .iter()
+                    .position(|line| self.match_json(obj, line).is_ok())
+                {
+                    Some(index) => lines.remove(index),
+                    None => {
+                        return Err(format!(
+                            "Did not find expected JSON:\n\
+                             {}\n\
+                             Remaining available output:\n\
+                             {}\n",
+                            serde_json::to_string_pretty(obj).unwrap(),
+                            lines.join("\n")
+                        ));
+                    }
+                };
+            }
+        }
         Ok(())
     }
 
@@ -968,20 +1065,17 @@ impl Execs {
                     None => out.to_string(),
                     Some(ref p) => match p.get_cwd() {
                         None => out.to_string(),
-                        Some(cwd) => out
-                            .replace( "[CWD]", &cwd.display().to_string())
-                        ,
+                        Some(cwd) => out.replace("[CWD]", &cwd.display().to_string()),
                     },
                 };
 
                 // On Windows, we need to use a wildcard for the drive,
                 // because we don't actually know what it will be.
-                let replaced = replaced
-                    .replace("[ROOT]",
-                             if cfg!(windows) { r#"[..]:\"# } else { "/" });
+                let replaced =
+                    replaced.replace("[ROOT]", if cfg!(windows) { r#"[..]:\"# } else { "/" });
 
                 replaced
-            },
+            }
             None => return Ok(()),
         };
 
@@ -989,7 +1083,7 @@ impl Execs {
             Err(..) => return Err(format!("{} was not utf8 encoded", description)),
             Ok(actual) => actual,
         };
-        // Let's not deal with \r\n vs \n on windows...
+        // Let's not deal with `\r\n` vs `\n` on Windows.
         let actual = actual.replace("\r", "");
         let actual = actual.replace("\t", "<tab>");
 
@@ -1098,7 +1192,7 @@ impl Execs {
                                  {}\n",
                                 e_line,
                                 a.join("\n")
-                            ))
+                            ));
                         }
                     };
                 }
@@ -1121,16 +1215,7 @@ impl Execs {
             Ok(actual) => actual,
         };
 
-        match find_mismatch(expected, &actual) {
-            Some((expected_part, actual_part)) => Err(format!(
-                "JSON mismatch\nExpected:\n{}\nWas:\n{}\nExpected part:\n{}\nActual part:\n{}\n",
-                serde_json::to_string_pretty(expected).unwrap(),
-                serde_json::to_string_pretty(&actual).unwrap(),
-                serde_json::to_string_pretty(expected_part).unwrap(),
-                serde_json::to_string_pretty(actual_part).unwrap(),
-            )),
-            None => Ok(()),
-        }
+        find_json_mismatch(expected, &actual)
     }
 
     fn diff_lines<'a>(
@@ -1157,13 +1242,14 @@ impl Execs {
                 (Some(a), None) => Some(format!("{:3} -\n    + |{}|\n", i, a)),
                 (None, Some(e)) => Some(format!("{:3} - |{}|\n    +\n", i, e)),
                 (None, None) => panic!("Cannot get here"),
-            }).collect()
+            })
+            .collect()
     }
 }
 
 impl Drop for Execs {
     fn drop(&mut self) {
-        if !self.ran {
+        if !self.ran && !std::thread::panicking() {
             panic!("forgot to run this command");
         }
     }
@@ -1178,7 +1264,7 @@ enum MatchKind {
     Unordered,
 }
 
-/// Compare a line with an expected pattern.
+/// Compares a line with an expected pattern.
 /// - Use `[..]` as a wildcard to match 0 or more characters on the same line
 ///   (similar to `.*` in a regex).
 /// - Use `[EXE]` to optionally add `.exe` on Windows (empty string on other
@@ -1186,6 +1272,8 @@ enum MatchKind {
 /// - There is a wide range of macros (such as `[COMPILING]` or `[WARNING]`)
 ///   to match cargo's "status" output and allows you to ignore the alignment.
 ///   See `substitute_macros` for a complete list of macros.
+/// - `[ROOT]` is `/` or `[..]:\` on Windows.
+/// - `[CWD]` is the working directory of the process that was run.
 pub fn lines_match(expected: &str, actual: &str) -> bool {
     // Let's not deal with / vs \ (windows...)
     // First replace backslash-escaped backslashes with forward slashes
@@ -1220,12 +1308,28 @@ fn lines_match_works() {
     assert!(!lines_match("b", "cb"));
 }
 
-// Compares JSON object for approximate equality.
-// You can use `[..]` wildcard in strings (useful for OS dependent things such
-// as paths).  You can use a `"{...}"` string literal as a wildcard for
-// arbitrary nested JSON (useful for parts of object emitted by other programs
-// (e.g. rustc) rather than Cargo itself).  Arrays are sorted before comparison.
-fn find_mismatch<'a>(expected: &'a Value, actual: &'a Value) -> Option<(&'a Value, &'a Value)> {
+/// Compares JSON object for approximate equality.
+/// You can use `[..]` wildcard in strings (useful for OS-dependent things such
+/// as paths). You can use a `"{...}"` string literal as a wildcard for
+/// arbitrary nested JSON (useful for parts of object emitted by other programs
+/// (e.g., rustc) rather than Cargo itself). Arrays are sorted before comparison.
+pub fn find_json_mismatch(expected: &Value, actual: &Value) -> Result<(), String> {
+    match find_json_mismatch_r(expected, &actual) {
+        Some((expected_part, actual_part)) => Err(format!(
+            "JSON mismatch\nExpected:\n{}\nWas:\n{}\nExpected part:\n{}\nActual part:\n{}\n",
+            serde_json::to_string_pretty(expected).unwrap(),
+            serde_json::to_string_pretty(&actual).unwrap(),
+            serde_json::to_string_pretty(expected_part).unwrap(),
+            serde_json::to_string_pretty(actual_part).unwrap(),
+        )),
+        None => Ok(()),
+    }
+}
+
+fn find_json_mismatch_r<'a>(
+    expected: &'a Value,
+    actual: &'a Value,
+) -> Option<(&'a Value, &'a Value)> {
     use serde_json::Value::*;
     match (expected, actual) {
         (&Number(ref l), &Number(ref r)) if l == r => None,
@@ -1240,7 +1344,7 @@ fn find_mismatch<'a>(expected: &'a Value, actual: &'a Value) -> Option<(&'a Valu
             let mut r = r.iter().collect::<Vec<_>>();
 
             l.retain(
-                |l| match r.iter().position(|r| find_mismatch(l, r).is_none()) {
+                |l| match r.iter().position(|r| find_json_mismatch_r(l, r).is_none()) {
                     Some(i) => {
                         r.remove(i);
                         false
@@ -1265,11 +1369,11 @@ fn find_mismatch<'a>(expected: &'a Value, actual: &'a Value) -> Option<(&'a Valu
 
             l.values()
                 .zip(r.values())
-                .filter_map(|(l, r)| find_mismatch(l, r))
+                .filter_map(|(l, r)| find_json_mismatch_r(l, r))
                 .nth(0)
         }
         (&Null, &Null) => None,
-        // magic string literal "{...}" acts as wildcard for any sub-JSON
+        // Magic string literal `"{...}"` acts as wildcard for any sub-JSON.
         (&String(ref l), _) if l == "{...}" => None,
         _ => Some((expected, actual)),
     }
@@ -1301,7 +1405,7 @@ fn zip_all<T, I1: Iterator<Item = T>, I2: Iterator<Item = T>>(a: I1, b: I2) -> Z
 }
 
 impl fmt::Debug for Execs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "execs")
     }
 }
@@ -1323,6 +1427,7 @@ pub fn execs() -> Execs {
         expect_stderr_unordered: Vec::new(),
         expect_neither_contains: Vec::new(),
         expect_json: None,
+        expect_json_contains_unordered: Vec::new(),
         stream_output: false,
     }
 }
@@ -1450,43 +1555,39 @@ pub fn process<T: AsRef<OsStr>>(t: T) -> cargo::util::ProcessBuilder {
 fn _process(t: &OsStr) -> cargo::util::ProcessBuilder {
     let mut p = cargo::util::process(t);
     p.cwd(&paths::root())
-     .env_remove("CARGO_HOME")
-     .env("HOME", paths::home())
-     .env("CARGO_HOME", paths::home().join(".cargo"))
-     .env("__CARGO_TEST_ROOT", paths::root())
-
-     // Force cargo to think it's on the stable channel for all tests, this
-     // should hopefully not surprise us as we add cargo features over time and
-     // cargo rides the trains.
-     .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "stable")
-
-     // For now disable incremental by default as support hasn't ridden to the
-     // stable channel yet. Once incremental support hits the stable compiler we
-     // can switch this to one and then fix the tests.
-     .env("CARGO_INCREMENTAL", "0")
-
-     // This env var can switch the git backend from libgit2 to git2-curl, which
-     // can tweak error messages and cause some tests to fail, so let's forcibly
-     // remove it.
-     .env_remove("CARGO_HTTP_CHECK_REVOKE")
-
-     .env_remove("__CARGO_DEFAULT_LIB_METADATA")
-     .env_remove("RUSTC")
-     .env_remove("RUSTDOC")
-     .env_remove("RUSTC_WRAPPER")
-     .env_remove("RUSTFLAGS")
-     .env_remove("XDG_CONFIG_HOME")      // see #2345
-     .env("GIT_CONFIG_NOSYSTEM", "1")    // keep trying to sandbox ourselves
-     .env_remove("EMAIL")
-     .env_remove("MFLAGS")
-     .env_remove("MAKEFLAGS")
-     .env_remove("CARGO_MAKEFLAGS")
-     .env_remove("GIT_AUTHOR_NAME")
-     .env_remove("GIT_AUTHOR_EMAIL")
-     .env_remove("GIT_COMMITTER_NAME")
-     .env_remove("GIT_COMMITTER_EMAIL")
-     .env_remove("CARGO_TARGET_DIR")     // we assume 'target'
-     .env_remove("MSYSTEM"); // assume cmd.exe everywhere on windows
+        .env_remove("CARGO_HOME")
+        .env("HOME", paths::home())
+        .env("CARGO_HOME", paths::home().join(".cargo"))
+        .env("__CARGO_TEST_ROOT", paths::root())
+        // Force Cargo to think it's on the stable channel for all tests, this
+        // should hopefully not surprise us as we add cargo features over time and
+        // cargo rides the trains.
+        .env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "stable")
+        // For now disable incremental by default as support hasn't ridden to the
+        // stable channel yet. Once incremental support hits the stable compiler we
+        // can switch this to one and then fix the tests.
+        .env("CARGO_INCREMENTAL", "0")
+        // This env var can switch the git backend from libgit2 to git2-curl, which
+        // can tweak error messages and cause some tests to fail, so let's forcibly
+        // remove it.
+        .env_remove("CARGO_HTTP_CHECK_REVOKE")
+        .env_remove("__CARGO_DEFAULT_LIB_METADATA")
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
+        .env_remove("RUSTC_WRAPPER")
+        .env_remove("RUSTFLAGS")
+        .env_remove("XDG_CONFIG_HOME") // see #2345
+        .env("GIT_CONFIG_NOSYSTEM", "1") // keep trying to sandbox ourselves
+        .env_remove("EMAIL")
+        .env_remove("MFLAGS")
+        .env_remove("MAKEFLAGS")
+        .env_remove("CARGO_MAKEFLAGS")
+        .env_remove("GIT_AUTHOR_NAME")
+        .env_remove("GIT_AUTHOR_EMAIL")
+        .env_remove("GIT_COMMITTER_NAME")
+        .env_remove("GIT_COMMITTER_EMAIL")
+        .env_remove("CARGO_TARGET_DIR") // we assume 'target'
+        .env_remove("MSYSTEM"); // assume cmd.exe everywhere on windows
     p
 }
 
@@ -1525,10 +1626,24 @@ pub fn sleep_ms(ms: u64) {
     ::std::thread::sleep(Duration::from_millis(ms));
 }
 
-/// Returns true if the local filesystem has low-resolution mtimes.
+/// Returns `true` if the local filesystem has low-resolution mtimes.
 pub fn is_coarse_mtime() -> bool {
-    // This should actually be a test that $CARGO_TARGET_DIR is on an HFS
+    // If the filetime crate is being used to emulate HFS then
+    // return `true`, without looking at the actual hardware.
+    cfg!(emulate_second_only_system) ||
+    // This should actually be a test that `$CARGO_TARGET_DIR` is on an HFS
     // filesystem, (or any filesystem with low-resolution mtimes). However,
     // that's tricky to detect, so for now just deal with CI.
     cfg!(target_os = "macos") && env::var("CI").is_ok()
+}
+
+/// Some CI setups are much slower then the equipment used by Cargo itself.
+/// Architectures that do not have a modern processor, hardware emulation, ect.
+/// This provides a way for those setups to increase the cut off for all the time based test.
+pub fn slow_cpu_multiplier(main: u64) -> Duration {
+    lazy_static::lazy_static! {
+        static ref SLOW_CPU_MULTIPLIER: u64 =
+            env::var("CARGO_TEST_SLOW_CPU_MULTIPLIER").ok().and_then(|m| m.parse().ok()).unwrap_or(1);
+    }
+    Duration::from_secs(*SLOW_CPU_MULTIPLIER * main)
 }

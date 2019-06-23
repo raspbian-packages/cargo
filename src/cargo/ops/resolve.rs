@@ -1,18 +1,26 @@
 use std::collections::HashSet;
 
-use core::registry::PackageRegistry;
-use core::resolver::{self, Method, Resolve};
-use core::{PackageId, PackageIdSpec, PackageSet, Source, SourceId, Workspace};
-use ops;
-use sources::PathSource;
-use util::errors::{CargoResult, CargoResultExt};
-use util::profile;
+use log::{debug, trace};
 
-/// Resolve all dependencies for the workspace using the previous
-/// lockfile as a guide if present.
+use crate::core::registry::PackageRegistry;
+use crate::core::resolver::{self, Method, Resolve};
+use crate::core::{PackageId, PackageIdSpec, PackageSet, Source, SourceId, Workspace};
+use crate::ops;
+use crate::sources::PathSource;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::profile;
+
+const UNUSED_PATCH_WARNING: &str = "\
+Check that the patched package version and available features are compatible
+with the dependency requirements. If the patch has a different version from
+what is locked in the Cargo.lock file, run `cargo update` to use the new
+version. This may also occur with an optional dependency that is not enabled.";
+
+/// Resolves all dependencies for the workspace using the previous
+/// lock file as a guide if present.
 ///
 /// This function will also write the result of resolution as a new
-/// lockfile.
+/// lock file.
 pub fn resolve_ws<'a>(ws: &Workspace<'a>) -> CargoResult<(PackageSet<'a>, Resolve)> {
     let mut registry = PackageRegistry::new(ws.config())?;
     let resolve = resolve_with_registry(ws, &mut registry, true)?;
@@ -24,7 +32,7 @@ pub fn resolve_ws<'a>(ws: &Workspace<'a>) -> CargoResult<(PackageSet<'a>, Resolv
 /// taking into account `paths` overrides and activated features.
 pub fn resolve_ws_precisely<'a>(
     ws: &Workspace<'a>,
-    source: Option<Box<Source + 'a>>,
+    source: Option<Box<dyn Source + 'a>>,
     features: &[String],
     all_features: bool,
     no_default_features: bool,
@@ -46,8 +54,8 @@ pub fn resolve_ws_precisely<'a>(
 
 pub fn resolve_ws_with_method<'a>(
     ws: &Workspace<'a>,
-    source: Option<Box<Source + 'a>>,
-    method: Method,
+    source: Option<Box<dyn Source + 'a>>,
+    method: Method<'_>,
     specs: &[PackageIdSpec],
 ) -> CargoResult<(PackageSet<'a>, Resolve)> {
     let mut registry = PackageRegistry::new(ws.config())?;
@@ -65,7 +73,7 @@ pub fn resolve_ws_with_method<'a>(
         // Second, resolve with precisely what we're doing. Filter out
         // transitive dependencies if necessary, specify features, handle
         // overrides, etc.
-        let _p = profile::start("resolving w/ overrides...");
+        let _p = profile::start("resolving with overrides...");
 
         add_overrides(&mut registry, ws)?;
 
@@ -124,19 +132,19 @@ fn resolve_with_registry<'cfg>(
     Ok(resolve)
 }
 
-/// Resolve all dependencies for a package using an optional previous instance
+/// Resolves all dependencies for a package using an optional previous instance.
 /// of resolve to guide the resolution process.
 ///
 /// This also takes an optional hash set, `to_avoid`, which is a list of package
-/// ids that should be avoided when consulting the previous instance of resolve
+/// IDs that should be avoided when consulting the previous instance of resolve
 /// (often used in pairings with updates).
 ///
-/// The previous resolve normally comes from a lockfile. This function does not
-/// read or write lockfiles from the filesystem.
+/// The previous resolve normally comes from a lock file. This function does not
+/// read or write lock files from the filesystem.
 pub fn resolve_with_previous<'cfg>(
     registry: &mut PackageRegistry<'cfg>,
     ws: &Workspace<'cfg>,
-    method: Method,
+    method: Method<'_>,
     previous: Option<&Resolve>,
     to_avoid: Option<&HashSet<PackageId>>,
     specs: &[PackageIdSpec],
@@ -144,12 +152,12 @@ pub fn resolve_with_previous<'cfg>(
     warn: bool,
 ) -> CargoResult<Resolve> {
     // Here we place an artificial limitation that all non-registry sources
-    // cannot be locked at more than one revision. This means that if a git
+    // cannot be locked at more than one revision. This means that if a Git
     // repository provides more than one package, they must all be updated in
     // step when any of them are updated.
     //
-    // TODO: This seems like a hokey reason to single out the registry as being
-    //       different
+    // TODO: this seems like a hokey reason to single out the registry as being
+    // different.
     let mut to_avoid_sources: HashSet<SourceId> = HashSet::new();
     if let Some(to_avoid) = to_avoid {
         to_avoid_sources.extend(
@@ -230,7 +238,7 @@ pub fn resolve_with_previous<'cfg>(
                 ..
             } => {
                 if specs.len() > 1 && !features.is_empty() {
-                    bail!("cannot specify features for more than one package");
+                    failure::bail!("cannot specify features for more than one package");
                 }
                 members.extend(
                     ws.members()
@@ -241,7 +249,7 @@ pub fn resolve_with_previous<'cfg>(
                 // into the resolution graph.
                 if members.is_empty() {
                     if !(features.is_empty() && !all_features && uses_default_features) {
-                        bail!("cannot specify features for packages outside of workspace");
+                        failure::bail!("cannot specify features for packages outside of workspace");
                     }
                     members.extend(ws.members());
                 }
@@ -332,6 +340,24 @@ pub fn resolve_with_previous<'cfg>(
         warn,
     )?;
     resolved.register_used_patches(registry.patches());
+    if register_patches {
+        // It would be good if this warning was more targeted and helpful
+        // (such as showing close candidates that failed to match). However,
+        // that's not terribly easy to do, so just show a general help
+        // message.
+        let warnings: Vec<String> = resolved
+            .unused_patches()
+            .iter()
+            .map(|pkgid| format!("Patch `{}` was not used in the crate graph.", pkgid))
+            .collect();
+        if !warnings.is_empty() {
+            ws.config().shell().warn(format!(
+                "{}\n{}",
+                warnings.join("\n"),
+                UNUSED_PATCH_WARNING
+            ))?;
+        }
+    }
     if let Some(previous) = previous {
         resolved.merge_from(previous)?;
     }
@@ -391,16 +417,16 @@ pub fn get_resolved_packages<'a>(
 /// want to make sure that we properly re-resolve (conservatively) instead of
 /// providing an opaque error.
 ///
-/// The logic here is somewhat subtle but there should be more comments below to
-/// help out, and otherwise feel free to ask on IRC if there's questions!
+/// The logic here is somewhat subtle, but there should be more comments below to
+/// clarify things.
 ///
 /// Note that this function, at the time of this writing, is basically the
-/// entire fix for #4127
+/// entire fix for issue #4127.
 fn register_previous_locks(
-    ws: &Workspace,
-    registry: &mut PackageRegistry,
+    ws: &Workspace<'_>,
+    registry: &mut PackageRegistry<'_>,
     resolve: &Resolve,
-    keep: &Fn(&PackageId) -> bool,
+    keep: &dyn Fn(&PackageId) -> bool,
 ) {
     let path_pkg = |id: SourceId| {
         if !id.is_path() {
@@ -415,16 +441,16 @@ fn register_previous_locks(
     };
 
     // Ok so we've been passed in a `keep` function which basically says "if I
-    // return true then this package wasn't listed for an update on the command
-    // line". AKA if we run `cargo update -p foo` then `keep(bar)` will return
-    // `true`, whereas `keep(foo)` will return `true` (roughly).
+    // return `true` then this package wasn't listed for an update on the command
+    // line". That is, if we run `cargo update -p foo` then `keep(bar)` will return
+    // `true`, whereas `keep(foo)` will return `false` (roughly speaking).
     //
     // This isn't actually quite what we want, however. Instead we want to
     // further refine this `keep` function with *all transitive dependencies* of
-    // the packages we're not keeping. For example consider a case like this:
+    // the packages we're not keeping. For example, consider a case like this:
     //
-    // * There's a crate `log`
-    // * There's a crate `serde` which depends on `log`
+    // * There's a crate `log`.
+    // * There's a crate `serde` which depends on `log`.
     //
     // Let's say we then run `cargo update -p serde`. This may *also* want to
     // update the `log` dependency as our newer version of `serde` may have a
@@ -437,14 +463,15 @@ fn register_previous_locks(
     // newer version of `serde` requires a new version of `log` it'll get pulled
     // in (as we didn't accidentally lock it to an old version).
     //
-    // Additionally here we process all path dependencies listed in the previous
+    // Additionally, here we process all path dependencies listed in the previous
     // resolve. They can not only have their dependencies change but also
     // the versions of the package change as well. If this ends up happening
-    // then we want to make sure we don't lock a package id node that doesn't
+    // then we want to make sure we don't lock a package ID node that doesn't
     // actually exist. Note that we don't do transitive visits of all the
     // package's dependencies here as that'll be covered below to poison those
     // if they changed.
     let mut avoid_locking = HashSet::new();
+    registry.add_to_yanked_whitelist(resolve.iter().filter(keep));
     for node in resolve.iter() {
         if !keep(&node) {
             add_deps(resolve, node, &mut avoid_locking);
@@ -455,7 +482,7 @@ fn register_previous_locks(
         }
     }
 
-    // Ok but the above loop isn't the entire story! Updates to the dependency
+    // Ok, but the above loop isn't the entire story! Updates to the dependency
     // graph can come from two locations, the `cargo update` command or
     // manifests themselves. For example a manifest on the filesystem may
     // have been updated to have an updated version requirement on `serde`. In
@@ -495,16 +522,15 @@ fn register_previous_locks(
         for dep in member.dependencies() {
             // If this dependency didn't match anything special then we may want
             // to poison the source as it may have been added. If this path
-            // dependencies is *not* a workspace member, however, and it's an
+            // dependencies is **not** a workspace member, however, and it's an
             // optional/non-transitive dependency then it won't be necessarily
             // be in our lock file. If this shows up then we avoid poisoning
             // this source as otherwise we'd repeatedly update the registry.
             //
             // TODO: this breaks adding an optional dependency in a
-            //       non-workspace member and then simultaneously editing the
-            //       dependency on that crate to enable the feature. For now
-            //       this bug is better than the always updating registry
-            //       though...
+            // non-workspace member and then simultaneously editing the
+            // dependency on that crate to enable the feature. For now,
+            // this bug is better than the always-updating registry though.
             if !ws
                 .members()
                 .any(|pkg| pkg.package_id() == member.package_id())
@@ -513,20 +539,20 @@ fn register_previous_locks(
                 continue;
             }
 
-            // If this is a path dependency then try to push it onto our
-            // worklist
+            // If this is a path dependency, then try to push it onto our
+            // worklist.
             if let Some(pkg) = path_pkg(dep.source_id()) {
                 path_deps.push(pkg);
                 continue;
             }
 
             // If we match *anything* in the dependency graph then we consider
-            // ourselves A-OK and assume that we'll resolve to that.
+            // ourselves all ok, and assume that we'll resolve to that.
             if resolve.iter().any(|id| dep.matches_ignoring_source(id)) {
                 continue;
             }
 
-            // Ok if nothing matches, then we poison the source of this
+            // Ok if nothing matches, then we poison the source of these
             // dependencies and the previous lock file.
             debug!(
                 "poisoning {} because {} looks like it changed {}",
@@ -544,7 +570,7 @@ fn register_previous_locks(
     }
 
     // Alright now that we've got our new, fresh, shiny, and refined `keep`
-    // function let's put it to action. Take a look at the previous lockfile,
+    // function let's put it to action. Take a look at the previous lock file,
     // filter everything by this callback, and then shove everything else into
     // the registry as a locked dependency.
     let keep = |id: &PackageId| keep(id) && !avoid_locking.contains(id);
@@ -554,7 +580,7 @@ fn register_previous_locks(
         registry.register_lock(node, deps);
     }
 
-    /// recursively add `node` and all its transitive dependencies to `set`
+    /// Recursively add `node` and all its transitive dependencies to `set`.
     fn add_deps(resolve: &Resolve, node: PackageId, set: &mut HashSet<PackageId>) {
         if !set.insert(node) {
             return;

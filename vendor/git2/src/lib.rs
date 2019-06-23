@@ -103,6 +103,7 @@ pub use pathspec::{Pathspec, PathspecMatchList, PathspecFailedEntries};
 pub use pathspec::{PathspecDiffEntries, PathspecEntries};
 pub use patch::Patch;
 pub use proxy_options::ProxyOptions;
+pub use rebase::{Rebase, RebaseOptions, RebaseOperation, RebaseOperationType};
 pub use reference::{Reference, References, ReferenceNames};
 pub use reflog::{Reflog, ReflogEntry, ReflogIter};
 pub use refspec::Refspec;
@@ -118,7 +119,7 @@ pub use stash::{StashApplyOptions, StashCb, StashApplyProgressCb};
 pub use submodule::{Submodule, SubmoduleUpdateOptions};
 pub use tag::Tag;
 pub use time::{Time, IndexTime};
-pub use tree::{Tree, TreeEntry, TreeIter};
+pub use tree::{Tree, TreeEntry, TreeIter, TreeWalkMode, TreeWalkResult};
 pub use treebuilder::TreeBuilder;
 pub use odb::{Odb, OdbObject, OdbReader, OdbWriter};
 pub use util::IntoCString;
@@ -377,8 +378,8 @@ bitflags! {
         /// change at any time. This is the default sorting for new walkers.
         const NONE = raw::GIT_SORT_NONE as u32;
 
-        /// Sort the repository contents in topological order (parents before
-        /// children).
+        /// Sort the repository contents in topological order (children before
+        /// parents).
         ///
         /// This sorting mode can be combined with time sorting.
         const TOPOLOGICAL = raw::GIT_SORT_TOPOLOGICAL as u32;
@@ -657,6 +658,7 @@ mod packbuilder;
 mod pathspec;
 mod patch;
 mod proxy_options;
+mod rebase;
 mod reference;
 mod reflog;
 mod refspec;

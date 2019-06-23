@@ -305,8 +305,8 @@ impl<'a> Debug for ParseBuffer<'a> {
 ///     input.step(|cursor| {
 ///         let mut rest = *cursor;
 ///         while let Some((tt, next)) = rest.token_tree() {
-///             match tt {
-///                 TokenTree::Punct(ref punct) if punct.as_char() == '@' => {
+///             match &tt {
+///                 TokenTree::Punct(punct) if punct.as_char() == '@' => {
 ///                     return Ok(((), next));
 ///                 }
 ///                 _ => rest = next,
@@ -469,7 +469,8 @@ impl<'a> ParseBuffer<'a> {
     ///
     /// - `input.peek(Token![struct])`
     /// - `input.peek(Token![==])`
-    /// - `input.peek(Ident)`
+    /// - `input.peek(Ident)`&emsp;*(does not accept keywords)*
+    /// - `input.peek(Ident::peek_any)`
     /// - `input.peek(Lifetime)`
     /// - `input.peek(token::Brace)`
     ///
@@ -901,8 +902,8 @@ impl<'a> ParseBuffer<'a> {
     ///     input.step(|cursor| {
     ///         let mut rest = *cursor;
     ///         while let Some((tt, next)) = rest.token_tree() {
-    ///             match tt {
-    ///                 TokenTree::Punct(ref punct) if punct.as_char() == '@' => {
+    ///             match &tt {
+    ///                 TokenTree::Punct(punct) if punct.as_char() == '@' => {
     ///                     return Ok(((), next));
     ///                 }
     ///                 _ => rest = next,

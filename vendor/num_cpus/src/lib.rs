@@ -25,10 +25,10 @@
 //! number 8, it could use the number of CPUs).
 //! 
 //! [processor tricks]: https://en.wikipedia.org/wiki/Simultaneous_multithreading
-//! [`rayon::ThreadPool`]: https://docs.rs/rayon/0.8.2/rayon/struct.ThreadPool.html
+//! [`rayon::ThreadPool`]: https://docs.rs/rayon/1.*/rayon/struct.ThreadPool.html
 #![cfg_attr(test, deny(warnings))]
 #![deny(missing_docs)]
-#![doc(html_root_url = "https://docs.rs/num_cpus/1.9.0")]
+#![doc(html_root_url = "https://docs.rs/num_cpus/1.10.0")]
 #![allow(non_snake_case)]
 
 #[cfg(not(windows))]
@@ -356,6 +356,7 @@ fn get_num_cpus() -> usize {
     target_os = "ios",
     target_os = "android",
     target_os = "solaris",
+    target_os = "illumos",
     target_os = "fuchsia")
 )]
 fn get_num_cpus() -> usize {
@@ -374,13 +375,22 @@ fn get_num_cpus() -> usize {
     }
 }
 
-#[cfg(any(
-    target_os = "emscripten",
-    target_os = "redox",
-    target_os = "haiku",
-    target_arch = "wasm32",
-    target_env = "sgx"
-))]
+#[cfg(not(any(
+    target_os = "nacl",
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android",
+    target_os = "solaris",
+    target_os = "illumos",
+    target_os = "fuchsia",
+    target_os = "linux",
+    target_os = "openbsd",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "bitrig",
+    target_os = "netbsd",
+    windows,
+)))]
 fn get_num_cpus() -> usize {
     1
 }

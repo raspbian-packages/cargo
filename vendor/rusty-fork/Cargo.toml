@@ -12,8 +12,9 @@
 
 [package]
 name = "rusty-fork"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Jason Lingle"]
+exclude = ["/gen-readme.sh", "/readme-*.md"]
 description = "Cross-platform library for running Rust tests in sub-processes using a\nfork-like interface.\n"
 documentation = "https://docs.rs/rusty-fork"
 readme = "README.md"
@@ -31,7 +32,7 @@ version = "1.2"
 version = "3.0"
 
 [dependencies.wait-timeout]
-version = "0.1.4"
+version = "0.2"
 optional = true
 
 [dev-dependencies]

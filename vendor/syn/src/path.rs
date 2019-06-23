@@ -86,6 +86,7 @@ impl PathArguments {
         }
     }
 
+    #[cfg(feature = "parsing")]
     fn is_none(&self) -> bool {
         match *self {
             PathArguments::None => true,
@@ -231,7 +232,7 @@ pub mod parsing {
                 }
 
                 if input.peek(Lit) {
-                    let lit = input.call(expr::parsing::expr_lit)?;
+                    let lit = input.parse()?;
                     return Ok(GenericArgument::Const(Expr::Lit(lit)));
                 }
 
@@ -427,6 +428,9 @@ pub mod parsing {
         /// - the first path segment has no angle bracketed or parenthesized
         ///   path arguments
         /// - and the ident of the first path segment is equal to the given one.
+        ///
+        /// *This function is available if Syn is built with the `"parsing"`
+        /// feature.*
         pub fn is_ident<I>(&self, ident: I) -> bool
         where
             Ident: PartialEq<I>,

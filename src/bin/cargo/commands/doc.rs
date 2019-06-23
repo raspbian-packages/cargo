@@ -1,4 +1,4 @@
-use command_prelude::*;
+use crate::command_prelude::*;
 
 use cargo::ops::{self, DocOptions};
 
@@ -37,7 +37,7 @@ All packages in the workspace are documented if the `--all` flag is supplied. Th
 `--all` flag is automatically assumed for a virtual manifest.
 Note that `--exclude` has to be specified in conjunction with the `--all` flag.
 
-If the --package argument is given, then SPEC is a package id specification
+If the `--package` argument is given, then SPEC is a package ID specification
 which indicates which package should be documented. If it is not given, then the
 current package is documented. For more information on SPEC and its format, see
 the `cargo help pkgid` command.
@@ -45,12 +45,12 @@ the `cargo help pkgid` command.
         )
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
+pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
     let ws = args.workspace(config)?;
     let mode = CompileMode::Doc {
         deps: !args.is_present("no-deps"),
     };
-    let mut compile_opts = args.compile_options(config, mode)?;
+    let mut compile_opts = args.compile_options(config, mode, Some(&ws))?;
     compile_opts.local_rustdoc_args = if args.is_present("document-private-items") {
         Some(vec!["--document-private-items".to_string()])
     } else {

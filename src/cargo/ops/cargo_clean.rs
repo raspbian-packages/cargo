@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use core::compiler::{BuildConfig, BuildContext, CompileMode, Context, Kind, Unit};
-use core::profiles::UnitFor;
-use core::Workspace;
-use ops;
-use util::errors::{CargoResult, CargoResultExt};
-use util::paths;
-use util::Config;
+use crate::core::compiler::{BuildConfig, BuildContext, CompileMode, Context, Kind, Unit};
+use crate::core::profiles::UnitFor;
+use crate::core::Workspace;
+use crate::ops;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::paths;
+use crate::util::Config;
 
 pub struct CleanOptions<'a> {
     pub config: &'a Config,
@@ -23,7 +23,7 @@ pub struct CleanOptions<'a> {
 }
 
 /// Cleans the package's build artifacts.
-pub fn clean(ws: &Workspace, opts: &CleanOptions) -> CargoResult<()> {
+pub fn clean(ws: &Workspace<'_>, opts: &CleanOptions<'_>) -> CargoResult<()> {
     let mut target_dir = ws.target_dir();
     let config = ws.config();
 
@@ -135,12 +135,13 @@ fn rm_rf(path: &Path, config: &Config) -> CargoResult<()> {
             .shell()
             .verbose(|shell| shell.status("Removing", path.display()))?;
         paths::remove_dir_all(path)
-            .chain_err(|| format_err!("could not remove build directory"))?;
+            .chain_err(|| failure::format_err!("could not remove build directory"))?;
     } else if m.is_ok() {
         config
             .shell()
             .verbose(|shell| shell.status("Removing", path.display()))?;
-        paths::remove_file(path).chain_err(|| format_err!("failed to remove build artifact"))?;
+        paths::remove_file(path)
+            .chain_err(|| failure::format_err!("failed to remove build artifact"))?;
     }
     Ok(())
 }

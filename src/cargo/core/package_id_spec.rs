@@ -5,9 +5,9 @@ use semver::Version;
 use serde::{de, ser};
 use url::Url;
 
-use core::PackageId;
-use util::errors::{CargoResult, CargoResultExt};
-use util::{ToSemver, ToUrl};
+use crate::core::PackageId;
+use crate::util::errors::{CargoResult, CargoResultExt};
+use crate::util::{validate_package_name, ToSemver, ToUrl};
 
 /// Some or all of the data required to identify a package:
 ///
@@ -15,9 +15,9 @@ use util::{ToSemver, ToUrl};
 ///  2. the package version (a `Version`, optional)
 ///  3. the package source (a `Url`, optional)
 ///
-/// If any of the optional fields are omitted, then the package id may be ambiguous, there may be
+/// If any of the optional fields are omitted, then the package ID may be ambiguous, there may be
 /// more than one package/version/url combo that will match. However, often just the name is
-/// sufficient to uniquely define a package id.
+/// sufficient to uniquely define a package ID.
 #[derive(Clone, PartialEq, Eq, Debug, Hash, Ord, PartialOrd)]
 pub struct PackageIdSpec {
     name: String,
@@ -61,14 +61,10 @@ impl PackageIdSpec {
         let mut parts = spec.splitn(2, ':');
         let name = parts.next().unwrap();
         let version = match parts.next() {
-            Some(version) => Some(Version::parse(version)?),
+            Some(version) => Some(version.to_semver()?),
             None => None,
         };
-        for ch in name.chars() {
-            if !ch.is_alphanumeric() && ch != '_' && ch != '-' {
-                bail!("invalid character in pkgid `{}`: `{}`", spec, ch)
-            }
-        }
+        validate_package_name(name, "pkgid", "")?;
         Ok(PackageIdSpec {
             name: name.to_string(),
             version,
@@ -82,7 +78,7 @@ impl PackageIdSpec {
         I: IntoIterator<Item = PackageId>,
     {
         let spec = PackageIdSpec::parse(spec)
-            .chain_err(|| format_err!("invalid package id specification: `{}`", spec))?;
+            .chain_err(|| failure::format_err!("invalid package ID specification: `{}`", spec))?;
         spec.query(i)
     }
 
@@ -99,16 +95,16 @@ impl PackageIdSpec {
     /// Tries to convert a valid `Url` to a `PackageIdSpec`.
     fn from_url(mut url: Url) -> CargoResult<PackageIdSpec> {
         if url.query().is_some() {
-            bail!("cannot have a query string in a pkgid: {}", url)
+            failure::bail!("cannot have a query string in a pkgid: {}", url)
         }
         let frag = url.fragment().map(|s| s.to_owned());
         url.set_fragment(None);
         let (name, version) = {
             let mut path = url
                 .path_segments()
-                .ok_or_else(|| format_err!("pkgid urls must have a path: {}", url))?;
+                .ok_or_else(|| failure::format_err!("pkgid urls must have a path: {}", url))?;
             let path_name = path.next_back().ok_or_else(|| {
-                format_err!(
+                failure::format_err!(
                     "pkgid urls must have at least one path \
                      component: {}",
                     url
@@ -186,8 +182,8 @@ impl PackageIdSpec {
         let mut ids = i.into_iter().filter(|p| self.matches(*p));
         let ret = match ids.next() {
             Some(id) => id,
-            None => bail!(
-                "package id specification `{}` \
+            None => failure::bail!(
+                "package ID specification `{}` \
                  matched no packages",
                 self
             ),
@@ -207,7 +203,7 @@ impl PackageIdSpec {
                 let mut vec = vec![ret, other];
                 vec.extend(ids);
                 minimize(&mut msg, &vec, self);
-                Err(format_err!("{}", msg))
+                Err(failure::format_err!("{}", msg))
             }
             None => Ok(ret),
         };
@@ -229,7 +225,7 @@ impl PackageIdSpec {
 }
 
 impl fmt::Display for PackageIdSpec {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut printed_name = false;
         match self.url {
             Some(ref url) => {
@@ -277,8 +273,8 @@ impl<'de> de::Deserialize<'de> for PackageIdSpec {
 #[cfg(test)]
 mod tests {
     use super::PackageIdSpec;
-    use core::{PackageId, SourceId};
-    use semver::Version;
+    use crate::core::{PackageId, SourceId};
+    use crate::util::ToSemver;
     use url::Url;
 
     #[test]
@@ -293,7 +289,7 @@ mod tests {
             "http://crates.io/foo#1.2.3",
             PackageIdSpec {
                 name: "foo".to_string(),
-                version: Some(Version::parse("1.2.3").unwrap()),
+                version: Some("1.2.3".to_semver().unwrap()),
                 url: Some(Url::parse("http://crates.io/foo").unwrap()),
             },
         );
@@ -301,7 +297,7 @@ mod tests {
             "http://crates.io/foo#bar:1.2.3",
             PackageIdSpec {
                 name: "bar".to_string(),
-                version: Some(Version::parse("1.2.3").unwrap()),
+                version: Some("1.2.3".to_semver().unwrap()),
                 url: Some(Url::parse("http://crates.io/foo").unwrap()),
             },
         );
@@ -317,7 +313,7 @@ mod tests {
             "crates.io/foo#1.2.3",
             PackageIdSpec {
                 name: "foo".to_string(),
-                version: Some(Version::parse("1.2.3").unwrap()),
+                version: Some("1.2.3".to_semver().unwrap()),
                 url: Some(Url::parse("cargo://crates.io/foo").unwrap()),
             },
         );
@@ -333,7 +329,7 @@ mod tests {
             "crates.io/foo#bar:1.2.3",
             PackageIdSpec {
                 name: "bar".to_string(),
-                version: Some(Version::parse("1.2.3").unwrap()),
+                version: Some("1.2.3".to_semver().unwrap()),
                 url: Some(Url::parse("cargo://crates.io/foo").unwrap()),
             },
         );
@@ -349,7 +345,7 @@ mod tests {
             "foo:1.2.3",
             PackageIdSpec {
                 name: "foo".to_string(),
-                version: Some(Version::parse("1.2.3").unwrap()),
+                version: Some("1.2.3".to_semver().unwrap()),
                 url: None,
             },
         );

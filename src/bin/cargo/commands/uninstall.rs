@@ -1,4 +1,4 @@
-use command_prelude::*;
+use crate::command_prelude::*;
 
 use cargo::ops;
 
@@ -11,7 +11,7 @@ pub fn cli() -> App {
         .arg(opt("root", "Directory to uninstall packages from").value_name("DIR"))
         .after_help(
             "\
-The argument SPEC is a package id specification (see `cargo help pkgid`) to
+The argument SPEC is a package ID specification (see `cargo help pkgid`) to
 specify which crate should be uninstalled. By default all binaries are
 uninstalled for a crate but the `--bin` and `--example` flags can be used to
 only uninstall particular binaries.
@@ -19,7 +19,7 @@ only uninstall particular binaries.
         )
 }
 
-pub fn exec(config: &mut Config, args: &ArgMatches) -> CliResult {
+pub fn exec(config: &mut Config, args: &ArgMatches<'_>) -> CliResult {
     let root = args.value_of("root");
     let specs = args
         .values_of("spec")

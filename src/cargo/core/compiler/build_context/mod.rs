@@ -3,24 +3,26 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::str;
 
-use core::profiles::Profiles;
-use core::{Dependency, Workspace};
-use core::{PackageId, PackageSet, Resolve};
-use util::errors::CargoResult;
-use util::{profile, Cfg, CfgExpr, Config, Rustc};
+use log::debug;
+
+use crate::core::profiles::Profiles;
+use crate::core::{Dependency, Workspace};
+use crate::core::{PackageId, PackageSet, Resolve};
+use crate::util::errors::CargoResult;
+use crate::util::{profile, Cfg, CfgExpr, Config, Rustc};
 
 use super::{BuildConfig, BuildOutput, Kind, Unit};
 
 mod target_info;
 pub use self::target_info::{FileFlavor, TargetInfo};
 
-/// The build context, containing all information about a build task
+/// The build context, containing all information about a build task.
 pub struct BuildContext<'a, 'cfg: 'a> {
-    /// The workspace the build is for
+    /// The workspace the build is for.
     pub ws: &'a Workspace<'cfg>,
-    /// The cargo configuration
+    /// The cargo configuration.
     pub config: &'cfg Config,
-    /// The dependency graph for our build
+    /// The dependency graph for our build.
     pub resolve: &'a Resolve,
     pub profiles: &'a Profiles,
     pub build_config: &'a BuildConfig,
@@ -28,15 +30,14 @@ pub struct BuildContext<'a, 'cfg: 'a> {
     pub extra_compiler_args: HashMap<Unit<'a>, Vec<String>>,
     pub packages: &'a PackageSet<'cfg>,
 
-    /// Information about the compiler
+    /// Information about the compiler.
     pub rustc: Rustc,
-    /// Build information for the host arch
+    /// Build information for the host arch.
     pub host_config: TargetConfig,
-    /// Build information for the target
+    /// Build information for the target.
     pub target_config: TargetConfig,
     pub target_info: TargetInfo,
     pub host_info: TargetInfo,
-    pub incremental_env: Option<bool>,
 }
 
 impl<'a, 'cfg> BuildContext<'a, 'cfg> {
@@ -49,11 +50,6 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
         profiles: &'a Profiles,
         extra_compiler_args: HashMap<Unit<'a>, Vec<String>>,
     ) -> CargoResult<BuildContext<'a, 'cfg>> {
-        let incremental_env = match env::var("CARGO_INCREMENTAL") {
-            Ok(v) => Some(v == "1"),
-            Err(_) => None,
-        };
-
         let rustc = config.rustc(Some(ws))?;
         let host_config = TargetConfig::new(config, &rustc.host)?;
         let target_config = match build_config.requested_target.as_ref() {
@@ -82,7 +78,6 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
             host_info,
             build_config,
             profiles,
-            incremental_env,
             extra_compiler_args,
         })
     }
@@ -108,17 +103,17 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
         platform.matches(name, info.cfg())
     }
 
-    /// Get the user-specified linker for a particular host or target
+    /// Gets the user-specified linker for a particular host or target.
     pub fn linker(&self, kind: Kind) -> Option<&Path> {
         self.target_config(kind).linker.as_ref().map(|s| s.as_ref())
     }
 
-    /// Get the user-specified `ar` program for a particular host or target
+    /// Gets the user-specified `ar` program for a particular host or target.
     pub fn ar(&self, kind: Kind) -> Option<&Path> {
         self.target_config(kind).ar.as_ref().map(|s| s.as_ref())
     }
 
-    /// Get the list of cfg printed out from the compiler for the specified kind
+    /// Gets the list of `cfg`s printed out from the compiler for the specified kind.
     pub fn cfg(&self, kind: Kind) -> &[Cfg] {
         let info = match kind {
             Kind::Host => &self.host_info,
@@ -127,12 +122,12 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
         info.cfg().unwrap_or(&[])
     }
 
-    /// The host arch triple
+    /// Gets the host architecture triple.
     ///
-    /// e.g. x86_64-unknown-linux-gnu, would be
-    ///  - machine: x86_64
-    ///  - hardware-platform: unknown
-    ///  - operating system: linux-gnu
+    /// For example, x86_64-unknown-linux-gnu, would be
+    /// - machine: x86_64,
+    /// - hardware-platform: unknown,
+    /// - operating system: linux-gnu.
     pub fn host_triple(&self) -> &str {
         &self.rustc.host
     }
@@ -145,7 +140,7 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
             .unwrap_or_else(|| self.host_triple())
     }
 
-    /// Get the target configuration for a particular host or target
+    /// Gets the target configuration for a particular host or target.
     fn target_config(&self, kind: Kind) -> &TargetConfig {
         match kind {
             Kind::Host => &self.host_config,
@@ -153,12 +148,12 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
         }
     }
 
-    /// Number of jobs specified for this build
+    /// Gets the number of jobs specified for this build.
     pub fn jobs(&self) -> u32 {
         self.build_config.jobs
     }
 
-    pub fn rustflags_args(&self, unit: &Unit) -> CargoResult<Vec<String>> {
+    pub fn rustflags_args(&self, unit: &Unit<'_>) -> CargoResult<Vec<String>> {
         env_args(
             self.config,
             &self.build_config.requested_target,
@@ -169,7 +164,7 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
         )
     }
 
-    pub fn rustdocflags_args(&self, unit: &Unit) -> CargoResult<Vec<String>> {
+    pub fn rustdocflags_args(&self, unit: &Unit<'_>) -> CargoResult<Vec<String>> {
         env_args(
             self.config,
             &self.build_config.requested_target,
@@ -196,14 +191,14 @@ impl<'a, 'cfg> BuildContext<'a, 'cfg> {
     }
 }
 
-/// Information required to build for a target
+/// Information required to build for a target.
 #[derive(Clone, Default)]
 pub struct TargetConfig {
     /// The path of archiver (lib builder) for this target.
     pub ar: Option<PathBuf>,
     /// The path of the linker for this target.
     pub linker: Option<PathBuf>,
-    /// Special build options for any necessary input files (filename -> options)
+    /// Special build options for any necessary input files (filename -> options).
     pub overrides: HashMap<String, BuildOutput>,
 }
 
@@ -274,7 +269,7 @@ impl TargetConfig {
                         }
                     }
                     "warning" | "rerun-if-changed" | "rerun-if-env-changed" => {
-                        bail!("`{}` is not supported in build script overrides", k);
+                        failure::bail!("`{}` is not supported in build script overrides", k);
                     }
                     _ => {
                         let val = value.string(k)?.0;
@@ -330,7 +325,7 @@ fn env_args(
     // to compilation units with the Target kind, which indicates
     // it was chosen by the --target flag.
     //
-    // This means that, e.g. even if the specified --target is the
+    // This means that, e.g., even if the specified --target is the
     // same as the host, build scripts in plugins won't get
     // RUSTFLAGS.
     let compiling_with_target = requested_target.is_some();
@@ -400,7 +395,7 @@ fn env_args(
         return Ok(rustflags);
     }
 
-    // Then the build.rustflags value
+    // Then the `build.rustflags` value.
     let key = format!("build.{}", name);
     if let Some(args) = config.get_list_or_split_string(&key)? {
         let args = args.val.into_iter();

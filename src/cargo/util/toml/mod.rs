@@ -5,23 +5,23 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str;
 
+use log::{debug, trace};
 use semver::{self, VersionReq};
-use serde::de::{self, Deserialize};
+use serde::de;
 use serde::ser;
-use serde_ignored;
-use toml;
+use serde::{Deserialize, Serialize};
 use url::Url;
 
-use core::dependency::{Kind, Platform};
-use core::manifest::{LibKind, ManifestMetadata, TargetSourcePath, Warnings};
-use core::profiles::Profiles;
-use core::{Dependency, Manifest, PackageId, Summary, Target};
-use core::{Edition, EitherManifest, Feature, Features, VirtualManifest};
-use core::{GitReference, PackageIdSpec, SourceId, WorkspaceConfig, WorkspaceRootConfig};
-use sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
-use util::errors::{CargoError, CargoResult, CargoResultExt, ManifestError};
-use util::paths;
-use util::{self, Config, ToUrl};
+use crate::core::dependency::{Kind, Platform};
+use crate::core::manifest::{LibKind, ManifestMetadata, TargetSourcePath, Warnings};
+use crate::core::profiles::Profiles;
+use crate::core::{Dependency, Manifest, PackageId, Summary, Target};
+use crate::core::{Edition, EitherManifest, Feature, Features, VirtualManifest};
+use crate::core::{GitReference, PackageIdSpec, SourceId, WorkspaceConfig, WorkspaceRootConfig};
+use crate::sources::{CRATES_IO_INDEX, CRATES_IO_REGISTRY};
+use crate::util::errors::{CargoResult, CargoResultExt, ManifestError};
+use crate::util::paths;
+use crate::util::{self, validate_package_name, Config, ToUrl};
 
 mod targets;
 use self::targets::targets;
@@ -53,7 +53,7 @@ fn do_read_manifest(
 
     let toml = {
         let pretty_filename =
-            util::without_prefix(manifest_file, config.cwd()).unwrap_or(manifest_file);
+            manifest_file.strip_prefix(config.cwd()).unwrap_or(manifest_file);
         parse(contents, pretty_filename, config)?
     };
 
@@ -78,7 +78,7 @@ fn do_read_manifest(
             TomlManifest::to_real_manifest(&manifest, source_id, package_root, config)?;
         add_unused(manifest.warnings_mut());
         if !manifest.targets().iter().any(|t| !t.is_custom_build()) {
-            bail!(
+            failure::bail!(
                 "no targets specified in the manifest\n  \
                  either src/lib.rs, src/main.rs, a [lib] section, or \
                  [[bin]] section must be present"
@@ -92,7 +92,7 @@ fn do_read_manifest(
         Ok((EitherManifest::Virtual(m), paths))
     };
 
-    fn stringify(dst: &mut String, path: &serde_ignored::Path) {
+    fn stringify(dst: &mut String, path: &serde_ignored::Path<'_>) {
         use serde_ignored::Path;
 
         match *path {
@@ -132,7 +132,7 @@ pub fn parse(toml: &str, file: &Path, config: &Config) -> CargoResult<toml::Valu
 TOML file found which contains invalid syntax and will soon not parse
 at `{}`.
 
-The TOML spec requires newlines after table definitions (e.g. `[a] b = 1` is
+The TOML spec requires newlines after table definitions (e.g., `[a] b = 1` is
 invalid), but this file has a table header which does not have a newline after
 it. A newline needs to be added and this warning will soon become a hard error
 in the future.",
@@ -142,7 +142,7 @@ in the future.",
         return Ok(ret);
     }
 
-    let first_error = CargoError::from(first_error);
+    let first_error = failure::Error::from(first_error);
     Err(first_error.context("could not parse input as TOML").into())
 }
 
@@ -152,7 +152,7 @@ type TomlExampleTarget = TomlTarget;
 type TomlTestTarget = TomlTarget;
 type TomlBenchTarget = TomlTarget;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(untagged)]
 pub enum TomlDependency {
     Simple(String),
@@ -169,7 +169,7 @@ impl<'de> de::Deserialize<'de> for TomlDependency {
         impl<'de> de::Visitor<'de> for TomlDependencyVisitor {
             type Value = TomlDependency;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str(
                     "a version string like \"0.9.8\" or a \
                      detailed dependency like { version = \"0.9.8\" }",
@@ -201,6 +201,12 @@ impl<'de> de::Deserialize<'de> for TomlDependency {
 pub struct DetailedTomlDependency {
     version: Option<String>,
     registry: Option<String>,
+    /// The URL of the `registry` field.
+    /// This is an internal implementation detail. When Cargo creates a
+    /// package, it replaces `registry` with `registry-index` so that the
+    /// manifest contains the correct URL. All users won't have the same
+    /// registry names configured, so Cargo can't rely on just the name for
+    /// crates published by other users.
     registry_index: Option<String>,
     path: Option<String>,
     git: Option<String>,
@@ -285,7 +291,7 @@ impl<'de> de::Deserialize<'de> for TomlOptLevel {
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = TomlOptLevel;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("an optimization level")
             }
 
@@ -345,7 +351,7 @@ impl<'de> de::Deserialize<'de> for U32OrBool {
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = U32OrBool;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a boolean or an integer")
             }
 
@@ -447,7 +453,7 @@ impl TomlProfile {
             "dev" | "release" => {}
             _ => {
                 if self.overrides.is_some() || self.build_override.is_some() {
-                    bail!(
+                    failure::bail!(
                         "Profile overrides may only be specified for \
                          `dev` or `release` profile, not `{}`.",
                         name
@@ -472,16 +478,16 @@ impl TomlProfile {
 
     fn validate_override(&self) -> CargoResult<()> {
         if self.overrides.is_some() || self.build_override.is_some() {
-            bail!("Profile overrides cannot be nested.");
+            failure::bail!("Profile overrides cannot be nested.");
         }
         if self.panic.is_some() {
-            bail!("`panic` may not be specified in a profile override.")
+            failure::bail!("`panic` may not be specified in a profile override.")
         }
         if self.lto.is_some() {
-            bail!("`lto` may not be specified in a profile override.")
+            failure::bail!("`lto` may not be specified in a profile override.")
         }
         if self.rpath.is_some() {
-            bail!("`rpath` may not be specified in a profile override.")
+            failure::bail!("`rpath` may not be specified in a profile override.")
         }
         Ok(())
     }
@@ -500,7 +506,7 @@ impl<'de> de::Deserialize<'de> for StringOrVec {
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = StringOrVec;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("string or list of strings")
             }
 
@@ -541,7 +547,7 @@ impl<'de> de::Deserialize<'de> for StringOrBool {
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = StringOrBool;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a boolean or a string")
             }
 
@@ -581,7 +587,7 @@ impl<'de> de::Deserialize<'de> for VecStringOrBool {
         impl<'de> de::Visitor<'de> for Visitor {
             type Value = VecStringOrBool;
 
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a boolean or vector of strings")
             }
 
@@ -608,7 +614,7 @@ impl<'de> de::Deserialize<'de> for VecStringOrBool {
 /// Represents the `package`/`project` sections of a `Cargo.toml`.
 ///
 /// Note that the order of the fields matters, since this is the order they
-/// are serialized to a TOML file.  For example, you cannot have values after
+/// are serialized to a TOML file. For example, you cannot have values after
 /// the field `metadata`, since it is a table and values cannot appear after
 /// tables.
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -637,7 +643,7 @@ pub struct TomlProject {
     #[serde(rename = "default-run")]
     default_run: Option<String>,
 
-    // package metadata
+    // Package metadata.
     description: Option<String>,
     homepage: Option<String>,
     documentation: Option<String>,
@@ -796,32 +802,20 @@ impl TomlManifest {
         let mut warnings = vec![];
         let mut errors = vec![];
 
-        // Parse features first so they will be available when parsing other parts of the toml
+        // Parse features first so they will be available when parsing other parts of the TOML.
         let empty = Vec::new();
         let cargo_features = me.cargo_features.as_ref().unwrap_or(&empty);
         let features = Features::new(&cargo_features, &mut warnings)?;
 
         let project = me.project.as_ref().or_else(|| me.package.as_ref());
-        let project = project.ok_or_else(|| format_err!("no `package` section found"))?;
+        let project = project.ok_or_else(|| failure::format_err!("no `package` section found"))?;
 
         let package_name = project.name.trim();
         if package_name.is_empty() {
-            bail!("package name cannot be an empty string")
+            failure::bail!("package name cannot be an empty string")
         }
 
-        for c in package_name.chars() {
-            if c.is_alphanumeric() {
-                continue;
-            }
-            if c == '_' || c == '-' {
-                continue;
-            }
-            bail!(
-                "Invalid character `{}` in package name: `{}`",
-                c,
-                package_name
-            )
-        }
+        validate_package_name(package_name, "package name", "")?;
 
         let pkgid = project.to_package_id(source_id)?;
 
@@ -840,9 +834,9 @@ impl TomlManifest {
             features.require(Feature::metabuild())?;
         }
 
-        // If we have no lib at all, use the inferred lib if available
-        // If we have a lib with a path, we're done
-        // If we have a lib with no path, use the inferred lib or_else package name
+        // If we have no lib at all, use the inferred lib, if available.
+        // If we have a lib with a path, we're done.
+        // If we have a lib with no path, use the inferred lib or else the package name.
         let targets = targets(
             &features,
             me,
@@ -885,7 +879,7 @@ impl TomlManifest {
             };
 
             fn process_dependencies(
-                cx: &mut Context,
+                cx: &mut Context<'_, '_>,
                 new_deps: Option<&BTreeMap<String, TomlDependency>>,
                 kind: Option<Kind>,
             ) -> CargoResult<()> {
@@ -901,7 +895,7 @@ impl TomlManifest {
                 Ok(())
             }
 
-            // Collect the deps
+            // Collect the dependencies.
             process_dependencies(&mut cx, me.dependencies.as_ref(), None)?;
             let dev_deps = me
                 .dev_dependencies
@@ -939,7 +933,7 @@ impl TomlManifest {
                 let name = dep.name_in_toml();
                 let prev = names_sources.insert(name.to_string(), dep.source_id());
                 if prev.is_some() && prev != Some(dep.source_id()) {
-                    bail!(
+                    failure::bail!(
                         "Dependency '{}' has different source paths depending on the build \
                          target. Each dependency must have a single canonical source path \
                          irrespective of build target.",
@@ -994,21 +988,14 @@ impl TomlManifest {
             (None, root) => WorkspaceConfig::Member {
                 root: root.cloned(),
             },
-            (Some(..), Some(..)) => bail!(
+            (Some(..), Some(..)) => failure::bail!(
                 "cannot configure both `package.workspace` and \
                  `[workspace]`, only one can be specified"
             ),
         };
         let profiles = Profiles::new(me.profile.as_ref(), config, &features, &mut warnings)?;
         let publish = match project.publish {
-            Some(VecStringOrBool::VecString(ref vecstring)) => {
-                features
-                    .require(Feature::alternative_registries())
-                    .chain_err(|| {
-                        "the `publish` manifest key is unstable for anything other than a value of true or false"
-                    })?;
-                Some(vecstring.clone())
-            }
+            Some(VecStringOrBool::VecString(ref vecstring)) => Some(vecstring.clone()),
             Some(VecStringOrBool::Bool(false)) => Some(vec![]),
             None | Some(VecStringOrBool::Bool(true)) => None,
         };
@@ -1020,6 +1007,14 @@ impl TomlManifest {
             }
             None => false,
         };
+
+        if summary.features().contains_key("default-features") {
+            warnings.push(
+                "`default-features = [\"..\"]` was found in [features]. \
+                 Did you mean to use `default = [\"..\"]`?"
+                    .to_string(),
+            )
+        }
 
         let custom_metadata = project.metadata.clone();
         let mut manifest = Manifest::new(
@@ -1069,43 +1064,43 @@ impl TomlManifest {
         config: &Config,
     ) -> CargoResult<(VirtualManifest, Vec<PathBuf>)> {
         if me.project.is_some() {
-            bail!("virtual manifests do not define [project]");
+            failure::bail!("virtual manifests do not define [project]");
         }
         if me.package.is_some() {
-            bail!("virtual manifests do not define [package]");
+            failure::bail!("virtual manifests do not define [package]");
         }
         if me.lib.is_some() {
-            bail!("virtual manifests do not specify [lib]");
+            failure::bail!("virtual manifests do not specify [lib]");
         }
         if me.bin.is_some() {
-            bail!("virtual manifests do not specify [[bin]]");
+            failure::bail!("virtual manifests do not specify [[bin]]");
         }
         if me.example.is_some() {
-            bail!("virtual manifests do not specify [[example]]");
+            failure::bail!("virtual manifests do not specify [[example]]");
         }
         if me.test.is_some() {
-            bail!("virtual manifests do not specify [[test]]");
+            failure::bail!("virtual manifests do not specify [[test]]");
         }
         if me.bench.is_some() {
-            bail!("virtual manifests do not specify [[bench]]");
+            failure::bail!("virtual manifests do not specify [[bench]]");
         }
         if me.dependencies.is_some() {
-            bail!("virtual manifests do not specify [dependencies]");
+            failure::bail!("virtual manifests do not specify [dependencies]");
         }
         if me.dev_dependencies.is_some() || me.dev_dependencies2.is_some() {
-            bail!("virtual manifests do not specify [dev-dependencies]");
+            failure::bail!("virtual manifests do not specify [dev-dependencies]");
         }
         if me.build_dependencies.is_some() || me.build_dependencies2.is_some() {
-            bail!("virtual manifests do not specify [build-dependencies]");
+            failure::bail!("virtual manifests do not specify [build-dependencies]");
         }
         if me.features.is_some() {
-            bail!("virtual manifests do not specify [features]");
+            failure::bail!("virtual manifests do not specify [features]");
         }
         if me.target.is_some() {
-            bail!("virtual manifests do not specify [target]");
+            failure::bail!("virtual manifests do not specify [target]");
         }
         if me.badges.is_some() {
-            bail!("virtual manifests do not specify [badges]");
+            failure::bail!("virtual manifests do not specify [badges]");
         }
 
         let mut nested_paths = Vec::new();
@@ -1138,18 +1133,18 @@ impl TomlManifest {
                 &config.exclude,
             )),
             None => {
-                bail!("virtual manifests must be configured with [workspace]");
+                failure::bail!("virtual manifests must be configured with [workspace]");
             }
         };
         Ok((
-            VirtualManifest::new(replace, patch, workspace_config, profiles),
+            VirtualManifest::new(replace, patch, workspace_config, profiles, features),
             nested_paths,
         ))
     }
 
-    fn replace(&self, cx: &mut Context) -> CargoResult<Vec<(PackageIdSpec, Dependency)>> {
+    fn replace(&self, cx: &mut Context<'_, '_>) -> CargoResult<Vec<(PackageIdSpec, Dependency)>> {
         if self.patch.is_some() && self.replace.is_some() {
-            bail!("cannot specify both [replace] and [patch]");
+            failure::bail!("cannot specify both [replace] and [patch]");
         }
         let mut replace = Vec::new();
         for (spec, replacement) in self.replace.iter().flat_map(|x| x) {
@@ -1169,7 +1164,7 @@ impl TomlManifest {
                 TomlDependency::Simple(..) => true,
             };
             if version_specified {
-                bail!(
+                failure::bail!(
                     "replacements cannot specify a version \
                      requirement, but found one for `{}`",
                     spec
@@ -1179,7 +1174,7 @@ impl TomlManifest {
             let mut dep = replacement.to_dependency(spec.name(), cx, None)?;
             {
                 let version = spec.version().ok_or_else(|| {
-                    format_err!(
+                    failure::format_err!(
                         "replacements must specify a version \
                          to replace, but `{}` does not",
                         spec
@@ -1192,12 +1187,18 @@ impl TomlManifest {
         Ok(replace)
     }
 
-    fn patch(&self, cx: &mut Context) -> CargoResult<HashMap<Url, Vec<Dependency>>> {
+    fn patch(&self, cx: &mut Context<'_, '_>) -> CargoResult<HashMap<Url, Vec<Dependency>>> {
         let mut patch = HashMap::new();
         for (url, deps) in self.patch.iter().flat_map(|x| x) {
             let url = match &url[..] {
                 CRATES_IO_REGISTRY => CRATES_IO_INDEX.parse().unwrap(),
-                _ => url.to_url()?,
+                _ => cx
+                    .config
+                    .get_registry_index(url)
+                    .or_else(|_| url.to_url())
+                    .chain_err(|| {
+                        format!("[patch] entry `{}` should be a URL or registry name", url)
+                    })?,
             };
             patch.insert(
                 url,
@@ -1216,13 +1217,14 @@ impl TomlManifest {
     ) -> Option<PathBuf> {
         let build_rs = package_root.join("build.rs");
         match *build {
-            Some(StringOrBool::Bool(false)) => None, // explicitly no build script
+            // Explicitly no build script.
+            Some(StringOrBool::Bool(false)) => None,
             Some(StringOrBool::Bool(true)) => Some(build_rs),
             Some(StringOrBool::String(ref s)) => Some(PathBuf::from(s)),
             None => {
                 match fs::metadata(&build_rs) {
-                    // If there is a build.rs file next to the Cargo.toml, assume it is
-                    // a build script
+                    // If there is a `build.rs` file next to the `Cargo.toml`, assume it is
+                    // a build script.
                     Ok(ref e) if e.is_file() => Some(build_rs),
                     Ok(_) | Err(_) => None,
                 }
@@ -1235,7 +1237,7 @@ impl TomlManifest {
     }
 }
 
-/// Will check a list of build targets, and make sure the target names are unique within a vector.
+/// Checks a list of build targets, and ensures the target names are unique within a vector.
 /// If not, the name of the offending build target is returned.
 fn unique_build_targets(targets: &[Target], package_root: &Path) -> Result<(), String> {
     let mut seen = HashSet::new();
@@ -1254,7 +1256,7 @@ impl TomlDependency {
     fn to_dependency(
         &self,
         name: &str,
-        cx: &mut Context,
+        cx: &mut Context<'_, '_>,
         kind: Option<Kind>,
     ) -> CargoResult<Dependency> {
         match *self {
@@ -1272,7 +1274,7 @@ impl DetailedTomlDependency {
     fn to_dependency(
         &self,
         name_in_toml: &str,
-        cx: &mut Context,
+        cx: &mut Context<'_, '_>,
         kind: Option<Kind>,
     ) -> CargoResult<Dependency> {
         if self.version.is_none() && self.path.is_none() && self.git.is_none() {
@@ -1305,26 +1307,18 @@ impl DetailedTomlDependency {
             }
         }
 
-        let registry_id = match self.registry {
-            Some(ref registry) => {
-                cx.features.require(Feature::alternative_registries())?;
-                SourceId::alt_registry(cx.config, registry)?
-            }
-            None => SourceId::crates_io(cx.config)?,
-        };
-
         let new_source_id = match (
             self.git.as_ref(),
             self.path.as_ref(),
             self.registry.as_ref(),
             self.registry_index.as_ref(),
         ) {
-            (Some(_), _, Some(_), _) | (Some(_), _, _, Some(_)) => bail!(
+            (Some(_), _, Some(_), _) | (Some(_), _, _, Some(_)) => failure::bail!(
                 "dependency ({}) specification is ambiguous. \
                  Only one of `git` or `registry` is allowed.",
                 name_in_toml
             ),
-            (_, _, Some(_), Some(_)) => bail!(
+            (_, _, Some(_), Some(_)) => failure::bail!(
                 "dependency ({}) specification is ambiguous. \
                  Only one of `registry` or `registry-index` is allowed.",
                 name_in_toml
@@ -1367,11 +1361,11 @@ impl DetailedTomlDependency {
             }
             (None, Some(path), _, _) => {
                 cx.nested_paths.push(PathBuf::from(path));
-                // If the source id for the package we're parsing is a path
+                // If the source ID for the package we're parsing is a path
                 // source, then we normalize the path here to get rid of
                 // components like `..`.
                 //
-                // The purpose of this is to get a canonical id for the package
+                // The purpose of this is to get a canonical ID for the package
                 // that we're depending on to ensure that builds of this package
                 // always end up hashing to the same value no matter where it's
                 // built from.
@@ -1408,8 +1402,17 @@ impl DetailedTomlDependency {
                     .unwrap_or(true),
             )
             .set_optional(self.optional.unwrap_or(false))
-            .set_platform(cx.platform.clone())
-            .set_registry_id(registry_id);
+            .set_platform(cx.platform.clone());
+        if let Some(registry) = &self.registry {
+            let registry_id = SourceId::alt_registry(cx.config, registry)?;
+            dep.set_registry_id(registry_id);
+        }
+        if let Some(registry_index) = &self.registry_index {
+            let url = registry_index.to_url()?;
+            let registry_id = SourceId::for_registry(&url)?;
+            dep.set_registry_id(registry_id);
+        }
+
         if let Some(kind) = kind {
             dep.set_kind(kind);
         }
@@ -1514,7 +1517,7 @@ impl TomlTarget {
 }
 
 impl fmt::Debug for PathValue {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }

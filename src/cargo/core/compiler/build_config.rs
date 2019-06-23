@@ -3,43 +3,44 @@ use std::path::Path;
 
 use serde::ser;
 
-use util::{CargoResult, CargoResultExt, Config, RustfixDiagnosticServer};
+use crate::util::{CargoResult, CargoResultExt, Config, RustfixDiagnosticServer};
 
 /// Configuration information for a rustc build.
 #[derive(Debug)]
 pub struct BuildConfig {
-    /// The target arch triple, defaults to host arch
+    /// The target arch triple.
+    /// Default: host arch.
     pub requested_target: Option<String>,
-    /// How many rustc jobs to run in parallel
+    /// Number of rustc jobs to run in parallel.
     pub jobs: u32,
-    /// Whether we are building for release
+    /// `true` if we are building for release.
     pub release: bool,
-    /// In what mode we are compiling
+    /// The mode we are compiling in.
     pub mode: CompileMode,
-    /// Whether to print std output in json format (for machine reading)
+    /// `true` to print stdout in JSON format (for machine reading).
     pub message_format: MessageFormat,
-    /// Force cargo to do a full rebuild and treat each target as changed.
+    /// Force Cargo to do a full rebuild and treat each target as changed.
     pub force_rebuild: bool,
     /// Output a build plan to stdout instead of actually compiling.
     pub build_plan: bool,
-    /// Use Cargo itself as the wrapper around rustc, only used for `cargo fix`
+    /// Use Cargo itself as the wrapper around rustc, only used for `cargo fix`.
     pub cargo_as_rustc_wrapper: bool,
-    /// Extra env vars to inject into rustc commands
+    /// Extra env vars to inject into rustc commands.
     pub extra_rustc_env: Vec<(String, String)>,
-    /// Extra args to inject into rustc commands
+    /// Extra args to inject into rustc commands.
     pub extra_rustc_args: Vec<String>,
     pub rustfix_diagnostic_server: RefCell<Option<RustfixDiagnosticServer>>,
 }
 
 impl BuildConfig {
-    /// Parse all config files to learn about build configuration. Currently
+    /// Parses all config files to learn about build configuration. Currently
     /// configured options are:
     ///
-    /// * build.jobs
-    /// * build.target
-    /// * target.$target.ar
-    /// * target.$target.linker
-    /// * target.$target.libfoo.metadata
+    /// * `build.jobs`
+    /// * `build.target`
+    /// * `target.$target.ar`
+    /// * `target.$target.linker`
+    /// * `target.$target.libfoo.metadata`
     pub fn new(
         config: &Config,
         jobs: Option<u32>,
@@ -48,27 +49,27 @@ impl BuildConfig {
     ) -> CargoResult<BuildConfig> {
         let requested_target = match requested_target {
             &Some(ref target) if target.ends_with(".json") => {
-                let path = Path::new(target)
-                    .canonicalize()
-                    .chain_err(|| format_err!("Target path {:?} is not a valid file", target))?;
+                let path = Path::new(target).canonicalize().chain_err(|| {
+                    failure::format_err!("Target path {:?} is not a valid file", target)
+                })?;
                 Some(
                     path.into_os_string()
                         .into_string()
-                        .map_err(|_| format_err!("Target path is not valid unicode"))?,
+                        .map_err(|_| failure::format_err!("Target path is not valid unicode"))?,
                 )
             }
             other => other.clone(),
         };
         if let Some(ref s) = requested_target {
             if s.trim().is_empty() {
-                bail!("target was empty")
+                failure::bail!("target was empty")
             }
         }
         let cfg_target = config.get_string("build.target")?.map(|s| s.val);
-        let target = requested_target.clone().or(cfg_target);
+        let target = requested_target.or(cfg_target);
 
         if jobs == Some(0) {
-            bail!("jobs must be at least 1")
+            failure::bail!("jobs must be at least 1")
         }
         if jobs.is_some() && config.jobserver_from_env().is_some() {
             config.shell().warn(
@@ -110,10 +111,10 @@ pub enum MessageFormat {
     Short,
 }
 
-/// The general "mode" of what to do.
-/// This is used for two purposes.  The commands themselves pass this in to
-/// `compile_ws` to tell it the general execution strategy.  This influences
-/// the default targets selected.  The other use is in the `Unit` struct
+/// The general "mode" for what to do.
+/// This is used for two purposes. The commands themselves pass this in to
+/// `compile_ws` to tell it the general execution strategy. This influences
+/// the default targets selected. The other use is in the `Unit` struct
 /// to indicate what is being done with a specific target.
 #[derive(Clone, Copy, PartialEq, Debug, Eq, Hash, PartialOrd, Ord)]
 pub enum CompileMode {
@@ -125,8 +126,8 @@ pub enum CompileMode {
     /// `test` is true, then it is also compiled with `--test` to check it like
     /// a test.
     Check { test: bool },
-    /// Used to indicate benchmarks should be built.  This is not used in
-    /// `Target` because it is essentially the same as `Test` (indicating
+    /// Used to indicate benchmarks should be built. This is not used in
+    /// `Target`, because it is essentially the same as `Test` (indicating
     /// `--test` should be passed to rustc) and by using `Test` instead it
     /// allows some de-duping of Units to occur.
     Bench,
@@ -135,8 +136,7 @@ pub enum CompileMode {
     Doc { deps: bool },
     /// A target that will be tested with `rustdoc`.
     Doctest,
-    /// A marker for Units that represent the execution of a `build.rs`
-    /// script.
+    /// A marker for Units that represent the execution of a `build.rs` script.
     RunCustomBuild,
 }
 
@@ -159,7 +159,7 @@ impl ser::Serialize for CompileMode {
 }
 
 impl CompileMode {
-    /// Returns true if the unit is being checked.
+    /// Returns `true` if the unit is being checked.
     pub fn is_check(self) -> bool {
         match self {
             CompileMode::Check { .. } => true,
@@ -167,7 +167,7 @@ impl CompileMode {
         }
     }
 
-    /// Returns true if this is a doc or doctest. Be careful using this.
+    /// Returns `true` if this is a doc or doc test. Be careful using this.
     /// Although both run rustdoc, the dependencies for those two modes are
     /// very different.
     pub fn is_doc(self) -> bool {
@@ -177,8 +177,8 @@ impl CompileMode {
         }
     }
 
-    /// Returns true if this is any type of test (test, benchmark, doctest, or
-    /// check-test).
+    /// Returns `true` if this is any type of test (test, benchmark, doc test, or
+    /// check test).
     pub fn is_any_test(self) -> bool {
         match self {
             CompileMode::Test
@@ -189,7 +189,7 @@ impl CompileMode {
         }
     }
 
-    /// Returns true if this is the *execution* of a `build.rs` script.
+    /// Returns `true` if this is the *execution* of a `build.rs` script.
     pub fn is_run_custom_build(self) -> bool {
         self == CompileMode::RunCustomBuild
     }

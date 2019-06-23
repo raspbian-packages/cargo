@@ -25,6 +25,7 @@ fn nightly_works() -> bool {
     use std::sync::atomic::*;
     use std::sync::Once;
 
+    #[allow(deprecated)]
     static WORKS: AtomicUsize = ATOMIC_USIZE_INIT;
     static INIT: Once = Once::new();
 
@@ -317,6 +318,7 @@ impl fmt::Debug for LexError {
     }
 }
 
+#[derive(Clone)]
 pub enum TokenTreeIter {
     Compiler(proc_macro::token_stream::IntoIter),
     Fallback(fallback::TokenTreeIter),
@@ -477,12 +479,12 @@ impl Span {
     #[cfg(any(super_unstable, feature = "span-locations"))]
     pub fn start(&self) -> LineColumn {
         match self {
-            #[cfg(nightly)]
+            #[cfg(proc_macro_span)]
             Span::Compiler(s) => {
                 let proc_macro::LineColumn { line, column } = s.start();
                 LineColumn { line, column }
             }
-            #[cfg(not(nightly))]
+            #[cfg(not(proc_macro_span))]
             Span::Compiler(_) => LineColumn { line: 0, column: 0 },
             Span::Fallback(s) => {
                 let fallback::LineColumn { line, column } = s.start();
@@ -494,12 +496,12 @@ impl Span {
     #[cfg(any(super_unstable, feature = "span-locations"))]
     pub fn end(&self) -> LineColumn {
         match self {
-            #[cfg(nightly)]
+            #[cfg(proc_macro_span)]
             Span::Compiler(s) => {
                 let proc_macro::LineColumn { line, column } = s.end();
                 LineColumn { line, column }
             }
-            #[cfg(not(nightly))]
+            #[cfg(not(proc_macro_span))]
             Span::Compiler(_) => LineColumn { line: 0, column: 0 },
             Span::Fallback(s) => {
                 let fallback::LineColumn { line, column } = s.end();

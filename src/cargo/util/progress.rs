@@ -2,8 +2,8 @@ use std::cmp;
 use std::env;
 use std::time::{Duration, Instant};
 
-use core::shell::Verbosity;
-use util::{CargoResult, Config};
+use crate::core::shell::Verbosity;
+use crate::util::{CargoResult, Config};
 
 use unicode_width::UnicodeWidthChar;
 
@@ -27,6 +27,7 @@ struct State<'cfg> {
     name: String,
     done: bool,
     throttle: Throttle,
+    last_line: Option<String>,
 }
 
 struct Format {
@@ -59,6 +60,7 @@ impl<'cfg> Progress<'cfg> {
                 name: name.to_string(),
                 done: false,
                 throttle: Throttle::new(),
+                last_line: None,
             }),
         }
     }
@@ -94,7 +96,7 @@ impl<'cfg> Progress<'cfg> {
         //    draw to the console every so often. Currently there's a 100ms
         //    delay between updates.
         if !s.throttle.allowed() {
-            return Ok(())
+            return Ok(());
         }
 
         s.tick(cur, max, "")
@@ -140,12 +142,12 @@ impl Throttle {
         if self.first {
             let delay = Duration::from_millis(500);
             if self.last_update.elapsed() < delay {
-                return false
+                return false;
             }
         } else {
             let interval = Duration::from_millis(100);
             if self.last_update.elapsed() < interval {
-                return false
+                return false;
             }
         }
         self.update();
@@ -183,22 +185,34 @@ impl<'cfg> State<'cfg> {
 
         // make sure we have enough room for the header
         if self.format.max_width < 15 {
-            return Ok(())
+            return Ok(());
         }
-        self.config.shell().status_header(&self.name)?;
+
         let mut line = prefix.to_string();
         self.format.render(&mut line, msg);
-
         while line.len() < self.format.max_width - 15 {
             line.push(' ');
         }
 
-        write!(self.config.shell().err(), "{}\r", line)?;
+        // Only update if the line has changed.
+        if self.config.shell().is_cleared() || self.last_line.as_ref() != Some(&line) {
+            let mut shell = self.config.shell();
+            shell.set_needs_clear(false);
+            shell.status_header(&self.name)?;
+            write!(shell.err(), "{}\r", line)?;
+            self.last_line = Some(line);
+            shell.set_needs_clear(true);
+        }
+
         Ok(())
     }
 
     fn clear(&mut self) {
-        self.config.shell().err_erase_line();
+        // No need to clear if the progress is not currently being displayed.
+        if self.last_line.is_some() && !self.config.shell().is_cleared() {
+            self.config.shell().err_erase_line();
+            self.last_line = None;
+        }
     }
 
     fn try_update_max_width(&mut self) {
@@ -255,7 +269,7 @@ impl Format {
         let mut avail_msg_len = self.max_width - string.len() - 15;
         let mut ellipsis_pos = 0;
         if avail_msg_len <= 3 {
-            return
+            return;
         }
         for c in msg.chars() {
             let display_width = c.width().unwrap_or(0);
@@ -401,8 +415,5 @@ fn test_progress_status_too_short() {
         max_print: 24,
         max_width: 24,
     };
-    assert_eq!(
-        format.progress_status(1, 1, ""),
-        None
-    );
+    assert_eq!(format.progress_status(1, 1, ""), None);
 }

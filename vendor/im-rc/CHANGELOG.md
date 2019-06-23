@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic
 Versioning](http://semver.org/spec/v2.0.0.html).
 
+## [12.3.4] - 2019-04-08
+
+### Changed
+
+- `Clone` constraints have been further relaxed on maps and sets, so that you
+  can now lookup and iterate over them without requiring a `Clone` constraint
+  (though you do still need `Clone` to actually insert data into them to lookup
+  or iterate over). (#81)
+
+### Fixed
+
+- Enforces the latest bugfix release of sized-chunks. (#78)
+- Another edge case bugfix to `Vector`'s size table handling. (#79)
+
+## [12.3.3] - 2019-03-11
+
+### Fixed
+
+- A number of issues were fixed where `Vector`'s size table would get out of
+  sync with the node structure if exercised too much and cause erroneous
+  behaviour. (#72, #74)
+- Comprehensive generative tests were added to test all data structures through
+  more unexpected code paths.
+
+## [12.3.2] - 2019-03-05
+
+### Changed
+
+- `Clone` constraints on all data structures, as well as relevant constraints on
+  maps and sets, have been relaxed where possible, so that you can now construct
+  empty instances and call most query methods without requiring values implement
+  `Clone` etc. (#63)
+
+### Fixed
+
+- Constructing an empty `Vector` will not allocate any heap memory, instead
+  deferring allocation until you perform an operation that would increase its
+  length. (#65)
+- Some bugs arising when using `Vector::append` repeatedly were fixed. (#67,
+  #70)
+
+## [12.3.1] - 2019-02-19
+
+### Changed
+
+- Unsafe chunks have been separated out into the `sized-chunks` crate, which is
+  now a dependency of `im`.
+
 ## [12.3.0] - 2019-01-15
 
 ### Added

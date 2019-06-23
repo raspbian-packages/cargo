@@ -6,23 +6,23 @@ use std::rc::Rc;
 
 use semver::Version;
 use serde::ser;
-use toml;
+use serde::Serialize;
 use url::Url;
 
-use core::interning::InternedString;
-use core::profiles::Profiles;
-use core::{Dependency, PackageId, PackageIdSpec, SourceId, Summary};
-use core::{Edition, Feature, Features, WorkspaceConfig};
-use util::errors::*;
-use util::toml::TomlManifest;
-use util::{short_hash, Config, Filesystem};
+use crate::core::interning::InternedString;
+use crate::core::profiles::Profiles;
+use crate::core::{Dependency, PackageId, PackageIdSpec, SourceId, Summary};
+use crate::core::{Edition, Feature, Features, WorkspaceConfig};
+use crate::util::errors::*;
+use crate::util::toml::TomlManifest;
+use crate::util::{short_hash, Config, Filesystem};
 
 pub enum EitherManifest {
     Real(Manifest),
     Virtual(VirtualManifest),
 }
 
-/// Contains all the information about a package, as loaded from a Cargo.toml.
+/// Contains all the information about a package, as loaded from a `Cargo.toml`.
 #[derive(Clone, Debug)]
 pub struct Manifest {
     summary: Summary,
@@ -66,6 +66,7 @@ pub struct VirtualManifest {
     workspace: WorkspaceConfig,
     profiles: Profiles,
     warnings: Warnings,
+    features: Features,
 }
 
 /// General metadata about a package which is just blindly uploaded to the
@@ -83,11 +84,11 @@ pub struct ManifestMetadata {
     pub categories: Vec<String>,
     pub license: Option<String>,
     pub license_file: Option<String>,
-    pub description: Option<String>,   // not markdown
-    pub readme: Option<String>,        // file, not contents
-    pub homepage: Option<String>,      // url
-    pub repository: Option<String>,    // url
-    pub documentation: Option<String>, // url
+    pub description: Option<String>,   // Not in Markdown
+    pub readme: Option<String>,        // File, not contents
+    pub homepage: Option<String>,      // URL
+    pub repository: Option<String>,    // URL
+    pub documentation: Option<String>, // URL
     pub badges: BTreeMap<String, BTreeMap<String, String>>,
     pub links: Option<String>,
 }
@@ -122,7 +123,7 @@ impl LibKind {
 }
 
 impl fmt::Debug for LibKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.crate_type().fmt(f)
     }
 }
@@ -168,7 +169,7 @@ impl ser::Serialize for TargetKind {
 }
 
 impl fmt::Debug for TargetKind {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use self::TargetKind::*;
         match *self {
             Lib(ref kinds) => kinds.fmt(f),
@@ -212,6 +213,7 @@ pub struct Target {
     doctest: bool,
     harness: bool, // whether to use the test harness (--test)
     for_host: bool,
+    proc_macro: bool,
     edition: Edition,
 }
 
@@ -222,10 +224,10 @@ pub enum TargetSourcePath {
 }
 
 impl TargetSourcePath {
-    pub fn path(&self) -> &Path {
+    pub fn path(&self) -> Option<&Path> {
         match self {
-            TargetSourcePath::Path(path) => path.as_ref(),
-            TargetSourcePath::Metabuild => panic!("metabuild not expected"),
+            TargetSourcePath::Path(path) => Some(path.as_ref()),
+            TargetSourcePath::Metabuild => None,
         }
     }
 
@@ -244,7 +246,7 @@ impl Hash for TargetSourcePath {
 }
 
 impl fmt::Debug for TargetSourcePath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             TargetSourcePath::Path(path) => path.fmt(f),
             TargetSourcePath::Metabuild => "metabuild".fmt(f),
@@ -268,7 +270,7 @@ struct SerializedTarget<'a> {
     /// See https://doc.rust-lang.org/reference/linkage.html
     crate_types: Vec<&'a str>,
     name: &'a str,
-    src_path: &'a PathBuf,
+    src_path: Option<&'a PathBuf>,
     edition: &'a str,
     #[serde(rename = "required-features", skip_serializing_if = "Option::is_none")]
     required_features: Option<Vec<&'a str>>,
@@ -276,11 +278,17 @@ struct SerializedTarget<'a> {
 
 impl ser::Serialize for Target {
     fn serialize<S: ser::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let src_path = match &self.src_path {
+            TargetSourcePath::Path(p) => Some(p),
+            // Unfortunately getting the correct path would require access to
+            // target_dir, which is not available here.
+            TargetSourcePath::Metabuild => None,
+        };
         SerializedTarget {
             kind: &self.kind,
             crate_types: self.rustc_crate_types(),
             name: &self.name,
-            src_path: &self.src_path.path().to_path_buf(),
+            src_path,
             edition: &self.edition.to_string(),
             required_features: self
                 .required_features
@@ -301,7 +309,7 @@ compact_debug! {
                             Target::lib_target(
                                 &self.name,
                                 kinds.clone(),
-                                self.src_path().path().to_path_buf(),
+                                self.src_path().path().unwrap().to_path_buf(),
                                 self.edition,
                             ),
                             format!("lib_target({:?}, {:?}, {:?}, {:?})",
@@ -346,6 +354,7 @@ compact_debug! {
                 doctest
                 harness
                 for_host
+                proc_macro
                 edition
             )]
         }
@@ -477,7 +486,7 @@ impl Manifest {
             self.features
                 .require(Feature::test_dummy_unstable())
                 .chain_err(|| {
-                    format_err!(
+                    failure::format_err!(
                         "the `im-a-teapot` manifest key is unstable and may \
                          not work properly in England"
                     )
@@ -487,7 +496,7 @@ impl Manifest {
         if self.default_run.is_some() {
             self.features
                 .require(Feature::default_run())
-                .chain_err(|| format_err!("the `default-run` manifest key is unstable"))?;
+                .chain_err(|| failure::format_err!("the `default-run` manifest key is unstable"))?;
         }
 
         Ok(())
@@ -533,6 +542,7 @@ impl VirtualManifest {
         patch: HashMap<Url, Vec<Dependency>>,
         workspace: WorkspaceConfig,
         profiles: Profiles,
+        features: Features,
     ) -> VirtualManifest {
         VirtualManifest {
             replace,
@@ -540,6 +550,7 @@ impl VirtualManifest {
             workspace,
             profiles,
             warnings: Warnings::new(),
+            features,
         }
     }
 
@@ -566,6 +577,10 @@ impl VirtualManifest {
     pub fn warnings(&self) -> &Warnings {
         &self.warnings
     }
+
+    pub fn features(&self) -> &Features {
+        &self.features
+    }
 }
 
 impl Target {
@@ -579,6 +594,7 @@ impl Target {
             doctest: false,
             harness: true,
             for_host: false,
+            proc_macro: false,
             edition,
             tested: true,
             benched: true,
@@ -638,7 +654,7 @@ impl Target {
             for_host: true,
             benched: false,
             tested: false,
-            ..Target::new(TargetSourcePath::Metabuild, Edition::Edition2015)
+            ..Target::new(TargetSourcePath::Metabuild, Edition::Edition2018)
         }
     }
 
@@ -728,6 +744,9 @@ impl Target {
     }
     pub fn for_host(&self) -> bool {
         self.for_host
+    }
+    pub fn proc_macro(&self) -> bool {
+        self.proc_macro
     }
     pub fn edition(&self) -> Edition {
         self.edition
@@ -854,6 +873,10 @@ impl Target {
         self.for_host = for_host;
         self
     }
+    pub fn set_proc_macro(&mut self, proc_macro: bool) -> &mut Target {
+        self.proc_macro = proc_macro;
+        self
+    }
     pub fn set_edition(&mut self, edition: Edition) -> &mut Target {
         self.edition = edition;
         self
@@ -869,7 +892,7 @@ impl Target {
 }
 
 impl fmt::Display for Target {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.kind {
             TargetKind::Lib(..) => write!(f, "Target(lib)"),
             TargetKind::Bin => write!(f, "Target(bin: {})", self.name),

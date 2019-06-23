@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde::ser;
+use serde::Serialize;
 
-use core::resolver::Resolve;
-use core::{Package, PackageId, Workspace};
-use ops::{self, Packages};
-use util::CargoResult;
+use crate::core::resolver::Resolve;
+use crate::core::{Package, PackageId, Workspace};
+use crate::ops::{self, Packages};
+use crate::util::CargoResult;
 
 const VERSION: u32 = 1;
 
@@ -20,9 +22,9 @@ pub struct OutputMetadataOptions {
 /// Loads the manifest, resolves the dependencies of the package to the concrete
 /// used versions - considering overrides - and writes all dependencies in a JSON
 /// format to stdout.
-pub fn output_metadata(ws: &Workspace, opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
+pub fn output_metadata(ws: &Workspace<'_>, opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
     if opt.version != VERSION {
-        bail!(
+        failure::bail!(
             "metadata version {} not supported, only {} is currently supported",
             opt.version,
             VERSION
@@ -35,18 +37,18 @@ pub fn output_metadata(ws: &Workspace, opt: &OutputMetadataOptions) -> CargoResu
     }
 }
 
-fn metadata_no_deps(ws: &Workspace, _opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
+fn metadata_no_deps(ws: &Workspace<'_>, _opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
     Ok(ExportInfo {
         packages: ws.members().cloned().collect(),
         workspace_members: ws.members().map(|pkg| pkg.package_id()).collect(),
         resolve: None,
-        target_directory: ws.target_dir().display().to_string(),
+        target_directory: ws.target_dir().clone().into_path_unlocked(),
         version: VERSION,
-        workspace_root: ws.root().display().to_string(),
+        workspace_root: ws.root().to_path_buf(),
     })
 }
 
-fn metadata_full(ws: &Workspace, opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
+fn metadata_full(ws: &Workspace<'_>, opt: &OutputMetadataOptions) -> CargoResult<ExportInfo> {
     let specs = Packages::All.to_package_id_specs(ws)?;
     let (package_set, resolve) = ops::resolve_ws_precisely(
         ws,
@@ -68,9 +70,9 @@ fn metadata_full(ws: &Workspace, opt: &OutputMetadataOptions) -> CargoResult<Exp
             resolve: (packages, resolve),
             root: ws.current_opt().map(|pkg| pkg.package_id()),
         }),
-        target_directory: ws.target_dir().display().to_string(),
+        target_directory: ws.target_dir().clone().into_path_unlocked(),
         version: VERSION,
-        workspace_root: ws.root().display().to_string(),
+        workspace_root: ws.root().to_path_buf(),
     })
 }
 
@@ -79,13 +81,13 @@ pub struct ExportInfo {
     packages: Vec<Package>,
     workspace_members: Vec<PackageId>,
     resolve: Option<MetadataResolve>,
-    target_directory: String,
+    target_directory: PathBuf,
     version: u32,
-    workspace_root: String,
+    workspace_root: PathBuf,
 }
 
 /// Newtype wrapper to provide a custom `Serialize` implementation.
-/// The one from lockfile does not fit because it uses a non-standard
+/// The one from lock file does not fit because it uses a non-standard
 /// format for `PackageId`s
 #[derive(Serialize)]
 struct MetadataResolve {

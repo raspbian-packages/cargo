@@ -18,8 +18,8 @@ use super::{
     LibKind, PathValue, StringOrBool, StringOrVec, TomlBenchTarget, TomlBinTarget,
     TomlExampleTarget, TomlLibTarget, TomlManifest, TomlTarget, TomlTestTarget,
 };
-use core::{compiler, Edition, Feature, Features, Target};
-use util::errors::{CargoResult, CargoResultExt};
+use crate::core::{compiler, Edition, Feature, Features, Target};
+use crate::util::errors::{CargoResult, CargoResultExt};
 
 pub fn targets(
     features: &Features,
@@ -54,7 +54,7 @@ pub fn targets(
         .package
         .as_ref()
         .or_else(|| manifest.project.as_ref())
-        .ok_or_else(|| format_err!("manifest has no `package` (or `project`)"))?;
+        .ok_or_else(|| failure::format_err!("manifest has no `package` (or `project`)"))?;
 
     targets.extend(clean_bins(
         features,
@@ -101,7 +101,7 @@ pub fn targets(
     // processing the custom build script
     if let Some(custom_build) = manifest.maybe_custom_build(custom_build, package_root) {
         if metabuild.is_some() {
-            bail!("cannot specify both `metabuild` and `build`");
+            failure::bail!("cannot specify both `metabuild` and `build`");
         }
         let name = format!(
             "build-script-{}",
@@ -121,7 +121,7 @@ pub fn targets(
         let bdeps = manifest.build_dependencies.as_ref();
         for name in &metabuild.0 {
             if !bdeps.map_or(false, |bd| bd.contains_key(name)) {
-                bail!(
+                failure::bail!(
                     "metabuild package `{}` must be specified in `build-dependencies`",
                     name
                 );
@@ -151,7 +151,7 @@ fn clean_lib(
             if let Some(ref name) = lib.name {
                 // XXX: other code paths dodge this validation
                 if name.contains('-') {
-                    bail!("library target names cannot contain hyphens: {}", name)
+                    failure::bail!("library target names cannot contain hyphens: {}", name)
                 }
             }
             Some(TomlTarget {
@@ -178,7 +178,7 @@ fn clean_lib(
         (None, Some(path)) => path,
         (None, None) => {
             let legacy_path = package_root.join("src").join(format!("{}.rs", lib.name()));
-            if edition < Edition::Edition2018 && legacy_path.exists() {
+            if edition == Edition::Edition2015 && legacy_path.exists() {
                 warnings.push(format!(
                     "path `{}` was erroneously implicitly accepted for library `{}`,\n\
                      please rename the file to `src/lib.rs` or set lib.path in Cargo.toml",
@@ -187,7 +187,7 @@ fn clean_lib(
                 ));
                 legacy_path
             } else {
-                bail!(
+                failure::bail!(
                     "can't find library `{}`, \
                      rename file to `src/lib.rs` or specify lib.path",
                     lib.name()
@@ -198,7 +198,7 @@ fn clean_lib(
 
     // Per the Macros 1.1 RFC:
     //
-    // > Initially if a crate is compiled with the proc-macro crate type
+    // > Initially if a crate is compiled with the `proc-macro` crate type
     // > (and possibly others) it will forbid exporting any items in the
     // > crate other than those functions tagged #[proc_macro_derive] and
     // > those functions must also be placed at the crate root.
@@ -219,11 +219,13 @@ fn clean_lib(
                 lib.name()
             ));
             if kinds.len() > 1 {
-                bail!("cannot mix `proc-macro` crate type with others");
+                failure::bail!("cannot mix `proc-macro` crate type with others");
             }
             vec![LibKind::ProcMacro]
         }
-        (_, Some(true), Some(true)) => bail!("lib.plugin and lib.proc-macro cannot both be true"),
+        (_, Some(true), Some(true)) => {
+            failure::bail!("`lib.plugin` and `lib.proc-macro` cannot both be `true`")
+        }
         (Some(kinds), _, _) => kinds.iter().map(|s| s.into()).collect(),
         (None, Some(true), _) => vec![LibKind::Dylib],
         (None, _, Some(true)) => vec![LibKind::ProcMacro],
@@ -285,7 +287,7 @@ fn clean_bins(
         }
 
         if compiler::is_bad_artifact_name(&name) {
-            bail!("the binary target name `{}` is forbidden", name)
+            failure::bail!("the binary target name `{}` is forbidden", name)
         }
     }
 
@@ -308,7 +310,7 @@ fn clean_bins(
         });
         let path = match path {
             Ok(path) => path,
-            Err(e) => bail!("{}", e),
+            Err(e) => failure::bail!("{}", e),
         };
 
         let mut target =
@@ -510,7 +512,7 @@ fn clean_targets_with_legacy_path(
     autodiscover: Option<bool>,
     warnings: &mut Vec<String>,
     errors: &mut Vec<String>,
-    legacy_path: &mut FnMut(&TomlTarget) -> Option<PathBuf>,
+    legacy_path: &mut dyn FnMut(&TomlTarget) -> Option<PathBuf>,
     autodiscover_flag_name: &str,
 ) -> CargoResult<Vec<(PathBuf, TomlTarget)>> {
     let toml_targets = toml_targets_and_inferred(
@@ -659,9 +661,8 @@ fn toml_targets_and_inferred(
 
             let autodiscover = match autodiscover {
                 Some(autodiscover) => autodiscover,
-                None => match edition {
-                    Edition::Edition2018 => true,
-                    Edition::Edition2015 => {
+                None => {
+                    if edition == Edition::Edition2015 {
                         if !rem_targets.is_empty() {
                             let mut rem_targets_str = String::new();
                             for t in rem_targets.iter() {
@@ -692,8 +693,10 @@ https://github.com/rust-lang/cargo/issues/5330",
                             ));
                         };
                         false
+                    } else {
+                        true
                     }
-                },
+                }
             };
 
             if autodiscover {
@@ -724,10 +727,10 @@ fn validate_has_name(
     match target.name {
         Some(ref name) => {
             if name.trim().is_empty() {
-                bail!("{} target names cannot be empty", target_kind_human)
+                failure::bail!("{} target names cannot be empty", target_kind_human)
             }
         }
-        None => bail!(
+        None => failure::bail!(
             "{} target {}.name is required",
             target_kind_human,
             target_kind
@@ -742,7 +745,7 @@ fn validate_unique_names(targets: &[TomlTarget], target_kind: &str) -> CargoResu
     let mut seen = HashSet::new();
     for name in targets.iter().map(|e| e.name()) {
         if !seen.insert(name.clone()) {
-            bail!(
+            failure::bail!(
                 "found duplicate {target_kind} name {name}, \
                  but all {target_kind} targets must have a unique name",
                 target_kind = target_kind,
@@ -761,6 +764,7 @@ fn configure(features: &Features, toml: &TomlTarget, target: &mut Target) -> Car
         .set_doctest(toml.doctest.unwrap_or_else(|| t2.doctested()))
         .set_benched(toml.bench.unwrap_or_else(|| t2.benched()))
         .set_harness(toml.harness.unwrap_or_else(|| t2.harness()))
+        .set_proc_macro(toml.proc_macro.unwrap_or_else(|| t2.proc_macro()))
         .set_for_host(match (toml.plugin, toml.proc_macro()) {
             (None, None) => t2.for_host(),
             (Some(true), _) | (_, Some(true)) => true,
@@ -785,7 +789,7 @@ fn target_path(
     target_kind: &str,
     package_root: &Path,
     edition: Edition,
-    legacy_path: &mut FnMut(&TomlTarget) -> Option<PathBuf>,
+    legacy_path: &mut dyn FnMut(&TomlTarget) -> Option<PathBuf>,
 ) -> Result<PathBuf, String> {
     if let Some(ref path) = target.path {
         // Should we verify that this path exists here?
@@ -803,7 +807,7 @@ fn target_path(
     match (first, second) {
         (Some(path), None) => Ok(path),
         (None, None) | (Some(_), Some(_)) => {
-            if edition < Edition::Edition2018 {
+            if edition == Edition::Edition2015 {
                 if let Some(path) = legacy_path(target) {
                     return Ok(path);
                 }

@@ -79,8 +79,8 @@
 //! Semver exempt methods are marked as such in the proc-macro2 documentation.
 
 // Proc-macro2 types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/proc-macro2/0.4.27")]
-#![cfg_attr(nightly, feature(proc_macro_span))]
+#![doc(html_root_url = "https://docs.rs/proc-macro2/0.4.30")]
+#![cfg_attr(any(proc_macro_span, super_unstable), feature(proc_macro_span))]
 #![cfg_attr(super_unstable, feature(proc_macro_raw_ident, proc_macro_def_site))]
 
 #[cfg(use_proc_macro)]
@@ -301,6 +301,7 @@ impl fmt::Debug for SourceFile {
 ///
 /// This type is semver exempt and not exposed by default.
 #[cfg(span_locations)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct LineColumn {
     /// The 1-indexed line in the source file on which the span starts or ends
     /// (inclusive).
@@ -853,7 +854,12 @@ impl Ident {
     /// # Panics
     ///
     /// Panics if the input string is neither a keyword nor a legal variable
-    /// name.
+    /// name. If you are not sure whether the string contains an identifier and
+    /// need to handle an error case, use
+    /// <a href="https://docs.rs/syn/0.15/syn/fn.parse_str.html"><code
+    ///   style="padding-right:0;">syn::parse_str</code></a><code
+    ///   style="padding-left:0;">::&lt;Ident&gt;</code>
+    /// rather than `Ident::new`.
     pub fn new(string: &str, span: Span) -> Ident {
         Ident::_new(imp::Ident::new(string, span.inner))
     }
@@ -1116,6 +1122,7 @@ pub mod token_stream {
     ///
     /// The iteration is "shallow", e.g. the iterator doesn't recurse into
     /// delimited groups, and returns whole groups as token trees.
+    #[derive(Clone)]
     pub struct IntoIter {
         inner: imp::TokenTreeIter,
         _marker: marker::PhantomData<Rc<()>>,

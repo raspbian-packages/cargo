@@ -1,16 +1,17 @@
 #![allow(deprecated)] // for SipHasher
 
-use std::path::{Path, PathBuf};
-use std::hash::{Hash, Hasher, SipHasher};
 use std::collections::hash_map::{Entry, HashMap};
-use std::sync::Mutex;
-use std::process::Stdio;
 use std::env;
+use std::hash::{Hash, Hasher, SipHasher};
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::Mutex;
 
-use serde_json;
+use log::{debug, info, warn};
+use serde::{Deserialize, Serialize};
 
-use util::{self, internal, profile, CargoResult, ProcessBuilder};
-use util::paths;
+use crate::util::paths;
+use crate::util::{self, internal, profile, CargoResult, ProcessBuilder};
 
 /// Information on the `rustc` executable
 #[derive(Debug)]
@@ -28,7 +29,7 @@ pub struct Rustc {
 }
 
 impl Rustc {
-    /// Run the compiler at `path` to learn various pieces of information about
+    /// Runs the compiler at `path` to learn various pieces of information about
     /// it, with an optional wrapper.
     ///
     /// If successful this function returns a description of the compiler along
@@ -65,7 +66,7 @@ impl Rustc {
         })
     }
 
-    /// Get a process builder set up to use the found rustc version, with a wrapper if Some
+    /// Gets a process builder set up to use the found rustc version, with a wrapper if `Some`.
     pub fn process(&self) -> ProcessBuilder {
         match self.wrapper {
             Some(ref wrapper) if !wrapper.as_os_str().is_empty() => {
@@ -73,7 +74,7 @@ impl Rustc {
                 cmd.arg(&self.path);
                 cmd
             }
-            _ => self.process_no_wrapper()
+            _ => self.process_no_wrapper(),
         }
     }
 
@@ -260,7 +261,7 @@ fn rustc_fingerprint(path: &Path, rustup_rustc: &Path) -> CargoResult<u64> {
                 .with_extension(env::consts::EXE_EXTENSION);
             paths::mtime(&real_rustc)?.hash(&mut hasher);
         }
-        (true, _, _) => bail!("probably rustup rustc, but without rustup's env vars"),
+        (true, _, _) => failure::bail!("probably rustup rustc, but without rustup's env vars"),
         _ => (),
     }
 
