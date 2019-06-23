@@ -1,0 +1,39 @@
+From: Raspbian forward porter <root@raspbian.org>
+Subject: Automatically generated patch (0.35.0-2+rpi1)
+
+Last (up to) 3 git changes, FYI:
+
+commit 5aea641973517331f3cd33e0e7c8e28e2ce930e5
+Author: Raspbian automatic forward porter <root@raspbian.org>
+Date:   Mon Jun 24 00:09:21 2019 +0100
+
+    Defuzz fuzzy quilt patches and/or disable broken quilt patches
+
+commit 61419a9eb5442d20dff134010f316667a9827bbf
+Merge: 6e55574ed 3b1b88e08
+Author: Raspbian automatic forward porter <root@raspbian.org>
+Date:   Mon Jun 24 00:09:16 2019 +0100
+
+    Merge version 0.33.0-3+rpi1 and 0.35.0-2 to produce 0.35.0-2+rpi1
+
+commit 3b1b88e08c83b03469c9a98c3237317c7eb5c330
+Merge: 44a4e2c4b 37eb86376
+Author: Ximin Luo <infinity0@debian.org>
+Date:   Sat Jun 8 19:04:43 2019 +0100
+
+    Merge cargo (0.35.0-2) import into refs/heads/workingbranch
+---
+
+--- cargo-0.35.0.orig/vendor/typenum/build/main.rs
++++ cargo-0.35.0/vendor/typenum/build/main.rs
+@@ -77,8 +77,8 @@ pub fn no_std() {}
+ fn main() {
+     let highest: u64 = 1024;
+ 
+-    let first2: u32 = (highest as f64).log(2.0).round() as u32 + 1;
+-    let first10: u32 = (highest as f64).log(10.0) as u32 + 1;
++    let first2: u32 = 11;//(highest as f64).log(2.0) as u32 + 1;
++    let first10: u32 = 4;//(highest as f64).log(10.0) as u32 + 1;
+     let uints = (0..(highest + 1))
+         .chain((first2..64).map(|i| 2u64.pow(i)))
+         .chain((first10..20).map(|i| 10u64.pow(i)));
