@@ -73,7 +73,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 // Serde types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/serde/1.0.95")]
+#![doc(html_root_url = "https://docs.rs/serde/1.0.96")]
 // Support using Serde without the standard library!
 #![cfg_attr(not(feature = "std"), no_std)]
 // Unstable functionality only if the user asks for it. For tracking and
@@ -212,12 +212,12 @@ mod lib {
     #[cfg(range_inclusive)]
     pub use self::core::ops::RangeInclusive;
 
-    #[cfg(all(feature = "std", std_integer_atomics))]
+    #[cfg(all(feature = "std", std_atomic))]
     pub use std::sync::atomic::{
         AtomicBool, AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicU16, AtomicU32, AtomicU8,
         AtomicUsize, Ordering,
     };
-    #[cfg(all(feature = "std", std_integer_atomics, not(target_os = "emscripten")))]
+    #[cfg(all(feature = "std", std_atomic64))]
     pub use std::sync::atomic::{AtomicI64, AtomicU64};
 
     #[cfg(any(core_duration, feature = "std"))]
