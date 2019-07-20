@@ -1,0 +1,150 @@
+From 210c2419beeef0cabfb0b35106a27fdb0882d9cc Mon Sep 17 00:00:00 2001
+From: James Brown <roguelazer@roguelazer.com>
+Date: Wed, 17 Jul 2019 09:19:03 -0700
+Subject: [PATCH 1/4] conservatively limit atomic features
+
+---
+ serde/build.rs | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+--- a/vendor/serde/build.rs
++++ b/vendor/serde/build.rs
+@@ -70,7 +70,22 @@
+     }
+ 
+     if minor >= 34 {
+-        println!("cargo:rustc-cfg=std_integer_atomics");
++        // Whitelist of archs that support std::sync::atomic module. Ideally we
++        // would use #[cfg(target_has_atomic = "...")] but it is not stable yet.
++        // Instead this is based on rustc's src/librustc_target/spec/*.rs.
++        let has_atomic64 = target.starts_with("x86_64")
++            || target.starts_with("i686")
++            || target.starts_with("aarch64")
++            || target.starts_with("powerpc64")
++            || target.starts_with("sparc64")
++            || target.starts_with("mips64el");
++        let has_atomic32 = has_atomic64 || emscripten;
++        if has_atomic64 {
++            println!("cargo:rustc-cfg=std_atomic64");
++        }
++        if has_atomic32 {
++            println!("cargo:rustc-cfg=std_atomic");
++        }
+     }
+ }
+ 
+--- a/vendor/serde/src/de/impls.rs
++++ b/vendor/serde/src/de/impls.rs
+@@ -2546,7 +2546,7 @@
+     }
+ }
+ 
+-#[cfg(all(feature = "std", std_integer_atomics))]
++#[cfg(all(feature = "std", std_atomic))]
+ macro_rules! atomic_impl {
+     ($($ty:ident)*) => {
+         $(
+@@ -2562,14 +2562,14 @@
+     };
+ }
+ 
+-#[cfg(all(feature = "std", std_integer_atomics))]
++#[cfg(all(feature = "std", std_atomic))]
+ atomic_impl! {
+     AtomicBool
+     AtomicI8 AtomicI16 AtomicI32 AtomicIsize
+     AtomicU8 AtomicU16 AtomicU32 AtomicUsize
+ }
+ 
+-#[cfg(all(feature = "std", std_integer_atomics, not(target_os = "emscripten")))]
++#[cfg(all(feature = "std", std_atomic64))]
+ atomic_impl! {
+     AtomicI64 AtomicU64
+ }
+--- a/vendor/serde/src/lib.rs
++++ b/vendor/serde/src/lib.rs
+@@ -73,7 +73,7 @@
+ ////////////////////////////////////////////////////////////////////////////////
+ 
+ // Serde types in rustdoc of other crates get linked to here.
+-#![doc(html_root_url = "https://docs.rs/serde/1.0.95")]
++#![doc(html_root_url = "https://docs.rs/serde/1.0.96")]
+ // Support using Serde without the standard library!
+ #![cfg_attr(not(feature = "std"), no_std)]
+ // Unstable functionality only if the user asks for it. For tracking and
+@@ -212,12 +212,12 @@
+     #[cfg(range_inclusive)]
+     pub use self::core::ops::RangeInclusive;
+ 
+-    #[cfg(all(feature = "std", std_integer_atomics))]
++    #[cfg(all(feature = "std", std_atomic))]
+     pub use std::sync::atomic::{
+         AtomicBool, AtomicI16, AtomicI32, AtomicI8, AtomicIsize, AtomicU16, AtomicU32, AtomicU8,
+         AtomicUsize, Ordering,
+     };
+-    #[cfg(all(feature = "std", std_integer_atomics, not(target_os = "emscripten")))]
++    #[cfg(all(feature = "std", std_atomic64))]
+     pub use std::sync::atomic::{AtomicI64, AtomicU64};
+ 
+     #[cfg(any(core_duration, feature = "std"))]
+--- a/vendor/serde/src/ser/impls.rs
++++ b/vendor/serde/src/ser/impls.rs
+@@ -842,7 +842,7 @@
+ 
+ ////////////////////////////////////////////////////////////////////////////////
+ 
+-#[cfg(all(feature = "std", std_integer_atomics))]
++#[cfg(all(feature = "std", std_atomic))]
+ macro_rules! atomic_impl {
+     ($($ty:ident)*) => {
+         $(
+@@ -858,14 +858,14 @@
+     }
+ }
+ 
+-#[cfg(all(feature = "std", std_integer_atomics))]
++#[cfg(all(feature = "std", std_atomic))]
+ atomic_impl! {
+     AtomicBool
+     AtomicI8 AtomicI16 AtomicI32 AtomicIsize
+     AtomicU8 AtomicU16 AtomicU32 AtomicUsize
+ }
+ 
+-#[cfg(all(feature = "std", std_integer_atomics, not(target_os = "emscripten")))]
++#[cfg(all(feature = "std", std_atomic64))]
+ atomic_impl! {
+     AtomicI64 AtomicU64
+ }
+--- a/vendor/serde_derive/src/lib.rs
++++ b/vendor/serde_derive/src/lib.rs
+@@ -13,7 +13,7 @@
+ //!
+ //! [https://serde.rs/derive.html]: https://serde.rs/derive.html
+ 
+-#![doc(html_root_url = "https://docs.rs/serde_derive/1.0.95")]
++#![doc(html_root_url = "https://docs.rs/serde_derive/1.0.96")]
+ #![allow(unknown_lints, bare_trait_objects)]
+ #![cfg_attr(feature = "cargo-clippy", allow(renamed_and_removed_lints))]
+ #![cfg_attr(feature = "cargo-clippy", deny(clippy, clippy_pedantic))]
+--- a/vendor/serde/Cargo.toml
++++ b/vendor/serde/Cargo.toml
+@@ -12,7 +12,7 @@
+ 
+ [package]
+ name = "serde"
+-version = "1.0.95"
++version = "1.0.96"
+ authors = ["Erick Tryzelaar <erick.tryzelaar@gmail.com>", "David Tolnay <dtolnay@gmail.com>"]
+ build = "build.rs"
+ include = ["Cargo.toml", "build.rs", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
+--- a/vendor/serde_derive/Cargo.toml
++++ b/vendor/serde_derive/Cargo.toml
+@@ -12,7 +12,7 @@
+ 
+ [package]
+ name = "serde_derive"
+-version = "1.0.95"
++version = "1.0.96"
+ authors = ["Erick Tryzelaar <erick.tryzelaar@gmail.com>", "David Tolnay <dtolnay@gmail.com>"]
+ include = ["Cargo.toml", "src/**/*.rs", "crates-io.md", "README.md", "LICENSE-APACHE", "LICENSE-MIT"]
+ description = "Macros 1.1 implementation of #[derive(Serialize, Deserialize)]"

@@ -1,0 +1,8 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -61,4 +61,4 @@
+ [target."cfg(unix)".dependencies.libc]
+ version = "0.2.50"
+ [target."cfg(windows)".dependencies.rand]
+-version = "0.6.5"
++version = "< 0.7, >= 0.4"
