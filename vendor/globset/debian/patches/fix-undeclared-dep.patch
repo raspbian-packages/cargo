@@ -1,0 +1,12 @@
+Forwarded: https://github.com/BurntSushi/globset/pull/1
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -43,6 +43,8 @@
+ version = "1.1.5"
+ [dev-dependencies.glob]
+ version = "0.3.0"
++[dev-dependencies.lazy_static]
++version = "1"
+ 
+ [features]
+ simd-accel = []

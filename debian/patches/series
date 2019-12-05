@@ -1,0 +1,5 @@
+2001_pkg-config.patch
+2001_backtrace-sys.patch
+2002_disable-net-tests.patch
+2005_disable_fetch_cross_tests.patch
+1001_libgit2_abi-compat-0.28.3.patch
